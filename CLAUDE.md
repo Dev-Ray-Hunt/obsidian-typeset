@@ -41,6 +41,27 @@ For every issue:
 
 ---
 
+## GitHub Project Board Protocol
+
+Use the GraphQL API (`gh api graphql`) to keep the project board current:
+
+- **When starting a new Milestone:** Set all issues on that milestone to `Active Milestone`
+- **When starting work on an issue:** Set that issue to `In Progress`
+- **When an issue is closed:** Set it to `Done`
+
+### Key IDs (Project 2 — obsidian-typeset)
+- Project ID: `PVT_kwHOCgOGys4BStuF`
+- Status Field ID: `PVTSSF_lAHOCgOGys4BStuFzhAKu1Q`
+- Status Options:
+  - Backlog: `bfe80b19`
+  - Active Milestone: `f6ee813c`
+  - In Progress: `eb1ce8b8`
+  - In Review: `c304acc2`
+  - Needs Testing: `3a0ef14d`
+  - Done: `ed330029`
+
+---
+
 ## Session Startup Checklist
 
 Before touching any code:
@@ -84,6 +105,23 @@ test(scope): short description
 - `dev` — active development. All work happens here.
 - Feature branches: `feat/issue-<number>-<short-name>`
 - Merge to `dev` via PR; merge `dev` → `main` at milestone completion.
+
+### Branch Workflow (follow this every milestone)
+
+**When starting a new milestone:**
+1. Create `dev` branch off `main`: `git checkout -b dev`
+2. Push it immediately: `git push -u origin dev`
+3. All issue work goes on `dev` (commit and push `dev` regularly as backup)
+
+**When closing a milestone:**
+1. Ensure all issues are closed and tests pass on `dev`
+2. Merge `dev` → `main`: `git checkout main && git merge dev`
+3. Push `main`: `git push origin main`
+4. Delete `dev`: `git branch -d dev && git push origin --delete dev`
+5. Create a fresh `dev` for the next milestone
+
+> M1 was committed directly to `main` (branch strategy not yet in place).
+> M2 onwards must follow this flow.
 
 ---
 
