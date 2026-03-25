@@ -1,0 +1,55 @@
+{
+  "compilerOptions": {
+    // ── Output target ──────────────────────────────────────────────────────
+    // ES6 is fully supported by all Obsidian/Electron versions in the wild.
+    "target": "ES6",
+
+    // ── Module system ──────────────────────────────────────────────────────
+    // ESNext: we hand off bundling entirely to esbuild. tsc only type-checks.
+    "module": "ESNext",
+
+    // Bundler resolution: tells TypeScript we have a bundler (esbuild) that
+    // handles file resolution — enables .ts extension imports, index files, etc.
+    "moduleResolution": "bundler",
+
+    // ── Type libraries ─────────────────────────────────────────────────────
+    // ES6  — built-in JS types (Promise, Map, Set, etc.)
+    // DOM  — browser types (document, window, HTMLElement, etc.)
+    //        Obsidian runs in Electron (Chromium), so DOM types apply.
+    "lib": ["ES6", "DOM"],
+
+    // ── No emit ────────────────────────────────────────────────────────────
+    // tsc's only job here is type checking. esbuild does the actual compiling.
+    // Required when using allowImportingTsExtensions.
+    "noEmit": true,
+
+    // Allow `import { Foo } from './foo.ts'` (explicit .ts extensions).
+    // Works because noEmit is true — esbuild resolves the imports at build time.
+    "allowImportingTsExtensions": true,
+
+    // ── Source maps ────────────────────────────────────────────────────────
+    // Inlined source maps make stack traces readable in Obsidian's dev console.
+    "inlineSourceMap": true,
+    "inlineSources": true,
+
+    // ── Strictness ─────────────────────────────────────────────────────────
+    // Catch null/undefined bugs at compile time (e.g. activeFile could be null).
+    "strictNullChecks": true,
+    // No implicit `any` — every variable must have a known type.
+    "noImplicitAny": true,
+    // Allow `import Foo from 'foo'` even when a module uses `export = Foo`.
+    "allowSyntheticDefaultImports": true,
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+    // Use shared tslib helpers instead of inlining them in every file.
+    // Slightly smaller output; tslib will be installed in package.json (Issue #5).
+    "importHelpers": true,
+
+    // Base URL for non-relative imports (e.g. `import { X } from 'src/types'`).
+    "baseUrl": "."
+  },
+
+  // Only compile files in src/. Exclude node_modules and the test vault.
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "test-vault"]
+}
