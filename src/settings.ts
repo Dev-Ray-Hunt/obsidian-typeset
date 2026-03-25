@@ -1,6 +1,39 @@
 // settings.ts — Plugin settings and Settings Tab UI
 
-import { App, Plugin, PluginSettingTab, Setting } from "obsidian";
+import { AbstractInputSuggest, App, Plugin, PluginSettingTab, Setting, TFolder } from "obsidian";
+
+// FolderSuggest — attaches a vault folder autocomplete dropdown to any text input.
+// Extends Obsidian's AbstractInputSuggest so it matches the look and feel of
+// native folder pickers used elsewhere in Obsidian's own settings UI.
+class FolderSuggest extends AbstractInputSuggest<TFolder> {
+	constructor(
+		app: App,
+		private inputEl: HTMLInputElement,
+	) {
+		super(app, inputEl);
+	}
+
+	getSuggestions(query: string): TFolder[] {
+		const lower = query.toLowerCase();
+		return this.app.vault
+			.getAllLoadedFiles()
+			.filter(
+				(f): f is TFolder =>
+					f instanceof TFolder && f.path.toLowerCase().includes(lower),
+			)
+			.sort((a, b) => a.path.localeCompare(b.path));
+	}
+
+	renderSuggestion(folder: TFolder, el: HTMLElement): void {
+		el.setText(folder.path);
+	}
+
+	selectSuggestion(folder: TFolder): void {
+		this.inputEl.value = folder.path;
+		this.inputEl.trigger("input");
+		this.close();
+	}
+}
 import { TypesetSettings, PageSize, PageOrientation } from "./types";
 
 export const DEFAULT_SETTINGS: TypesetSettings = {
@@ -184,14 +217,15 @@ export class TypesetSettingTab extends PluginSettingTab {
 			.setDesc(
 				"Vault-relative folder where exported PDFs are saved. Leave blank to save next to the note.",
 			)
-			.addText(text =>
+			.addText(text => {
 				text
 					.setPlaceholder("e.g. Exports/PDF")
 					.setValue(this.settings.outputFolder)
 					.onChange(async value => {
 						this.settings.outputFolder = value;
 						await this.save(this.settings);
-					}),
-			);
+					});
+				new FolderSuggest(this.app, text.inputEl);
+			});
 	}
 }
