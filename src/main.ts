@@ -30,6 +30,8 @@ export default class TypesetPlugin extends Plugin {
 			),
 		);
 
+
+
 		console.log(`Typeset: plugin loaded (v${this.manifest.version})`);
 	}
 
