@@ -1,15 +1,31 @@
 # CLAUDE.md — Session Protocol for Obsidian Typeset
 
-> Every Claude Code session MUST follow these steps before writing any code.
+---
+
+## 👋 When Brandon Says "Hello"
+
+Immediately run the following and report back in this exact format:
+
+1. Run `git status` and `git log --oneline -5`
+2. Run `gh issue list --repo Dev-Ray-Hunt/obsidian-typeset --state open --milestone "$(gh api repos/Dev-Ray-Hunt/obsidian-typeset/milestones --jq '[.[] | select(.open_issues > 0)] | first | .title')" --json number,title --jq '.[] | "#\(.number) \(.title)"'`
+3. Identify the active milestone by finding the lowest-numbered milestone with open issues
+
+Then respond with something like:
 
 ---
 
-## Session Startup Checklist
+**Hey Brandon! Here's where we are:**
 
-1. **Read `REQUIREMENTS.md`** — the authoritative source of truth for this project.
-2. **Run `git status`** — understand the current state of the repo.
-3. **Identify the current active milestone** — check which M0–M5 milestone is in progress.
-4. **Ask Brandon which GitHub Issue to work on** — or pick the next open issue on the active milestone.
+- 📍 **Active Milestone:** M1 — Core PDF Export
+- ✅ **Last completed:** Issue #14 — Verify full dev loop
+- 🔜 **Next up:** Issue #15 — Create types.ts with core interfaces
+- 🌿 **Git status:** Clean / [any uncommitted changes]
+
+Ready to go on Issue #15 whenever you are — just say the word!
+
+---
+
+Always orient before asking what to do. Never make Brandon figure out where we left off.
 
 ---
 
@@ -25,6 +41,17 @@ For every issue:
 
 ---
 
+## Session Startup Checklist
+
+Before touching any code:
+1. Read `REQUIREMENTS.md`
+2. Run `git status`
+3. Identify the active milestone (lowest-numbered with open issues)
+4. Find the next open issue on that milestone
+5. Wait for Brandon's go-ahead
+
+---
+
 ## Key References
 
 | Item | Location |
@@ -32,7 +59,7 @@ For every issue:
 | Full requirements | `REQUIREMENTS.md` |
 | GitHub repo | https://github.com/Dev-Ray-Hunt/obsidian-typeset |
 | Project board | https://github.com/users/Dev-Ray-Hunt/projects/2 |
-| Active milestone | Check GitHub Milestones |
+| Issues | https://github.com/Dev-Ray-Hunt/obsidian-typeset/issues |
 
 ---
 
