@@ -7,7 +7,7 @@
 	"license": "MIT",
 
 	"scripts": {
-		"dev":           "node esbuild.config.mjs",
+		"dev":           "node scripts/check-vault.mjs && node esbuild.config.mjs",
 		"build":         "node esbuild.config.mjs production",
 		"typecheck":     "tsc --noEmit",
 		"lint":          "eslint src/",
