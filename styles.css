@@ -1,0 +1,33 @@
+/* ============================================================
+   Typeset — Plugin Styles
+   ============================================================ */
+
+/* --- Margin validation warnings ---------------------------- */
+
+.typeset-margin-group-label {
+	font-size: 0.8em;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--text-muted);
+	margin: 1.25rem 0 0 0;
+	padding: 0;
+}
+
+.typeset-margin-pair-warning {
+	margin: 0 0 0.5rem 0;
+	padding: 0;
+}
+
+.typeset-margin-warning {
+	margin: 0.15rem 0;
+	padding: 0;
+	font-size: 0.82em;
+	line-height: 1.4;
+	color: var(--text-muted);
+}
+
+.typeset-margin-warning::before {
+	content: "⚠ ";
+	color: var(--color-orange);
+}

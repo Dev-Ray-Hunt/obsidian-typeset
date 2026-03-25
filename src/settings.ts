@@ -46,8 +46,62 @@ export const DEFAULT_SETTINGS: TypesetSettings = {
 	outputFolder: "",
 };
 
+// Page dimensions in mm — used to warn when margins exceed the page size.
+const PAGE_DIMENSIONS_MM: Record<
+	Exclude<PageSize, PageSize.Custom>,
+	{ w: number; h: number }
+> = {
+	[PageSize.A4]:     { w: 210,   h: 297   },
+	[PageSize.Letter]: { w: 215.9, h: 279.4 },
+	[PageSize.Legal]:  { w: 215.9, h: 355.6 },
+	[PageSize.A5]:     { w: 148,   h: 210   },
+};
+
+function toMm(value: number, unit: "mm" | "in" | "px"): number {
+	if (unit === "mm") return value;
+	if (unit === "in") return value * 25.4;
+	return value * 0.264583; // 96 dpi
+}
+
+// Deep-merge saved data onto defaults so nested objects (e.g. margins) are
+// merged field-by-field rather than replaced wholesale.
+function deepMerge<T>(defaults: T, saved: Partial<T>): T {
+	const result = { ...defaults } as Record<string, unknown>;
+	for (const key in saved) {
+		const savedVal = saved[key];
+		const defaultVal = (defaults as Record<string, unknown>)[key];
+		if (
+			savedVal !== null &&
+			typeof savedVal === "object" &&
+			!Array.isArray(savedVal) &&
+			typeof defaultVal === "object"
+		) {
+			result[key] = deepMerge(
+				defaultVal as Record<string, unknown>,
+				savedVal as Record<string, unknown>,
+			);
+		} else if (savedVal !== undefined) {
+			result[key] = savedVal;
+		}
+	}
+	return result as T;
+}
+
+// Fix NaN values that could come from corrupted saves — but never clamp,
+// so the user's intentional values (even unusual ones) are always preserved.
+function sanitizeSettings(s: TypesetSettings): TypesetSettings {
+	const { margins } = s.defaultLayout;
+	const fix = (v: number) => (isNaN(v) ? 0 : v);
+	margins.top    = fix(margins.top);
+	margins.right  = fix(margins.right);
+	margins.bottom = fix(margins.bottom);
+	margins.left   = fix(margins.left);
+	return s;
+}
+
 export async function loadSettings(plugin: Plugin): Promise<TypesetSettings> {
-	return Object.assign({}, DEFAULT_SETTINGS, await plugin.loadData());
+	const saved = (await plugin.loadData()) ?? {};
+	return sanitizeSettings(deepMerge(DEFAULT_SETTINGS, saved));
 }
 
 export async function saveSettings(
@@ -169,30 +223,6 @@ export class TypesetSettingTab extends PluginSettingTab {
 		// --- Margins ---
 		containerEl.createEl("h3", { text: "Margins" });
 
-		const marginUnit = this.settings.defaultLayout.margins.unit;
-
-		for (const side of ["top", "right", "bottom", "left"] as const) {
-			new Setting(containerEl)
-				.setName(`Margin — ${side}`)
-				.setDesc(`${side.charAt(0).toUpperCase() + side.slice(1)} margin (${marginUnit})`)
-				.addText(text =>
-					text
-						.setPlaceholder("20")
-						.setValue(
-							String(this.settings.defaultLayout.margins[side]),
-						)
-						.onChange(async value => {
-							const parsed = parseFloat(value);
-							this.settings.defaultLayout.margins[side] = isNaN(
-								parsed,
-							)
-								? 0
-								: Math.max(0, parsed);
-							await this.save(this.settings);
-						}),
-				);
-		}
-
 		new Setting(containerEl)
 			.setName("Margin unit")
 			.setDesc("Unit applied to all four margin values.")
@@ -206,8 +236,120 @@ export class TypesetSettingTab extends PluginSettingTab {
 							| "in"
 							| "px";
 						await this.save(this.settings);
+						this.display();
 					}),
 			);
+
+		const layout = this.settings.defaultLayout;
+		const m = layout.margins;
+		const u = m.unit;
+
+		// Resolve page dimensions (mm), swapped for landscape.
+		let pageW = 0, pageH = 0;
+		if (layout.size !== PageSize.Custom) {
+			const base = PAGE_DIMENSIONS_MM[layout.size as Exclude<PageSize, PageSize.Custom>];
+			if (base) {
+				const isLandscape = layout.orientation === PageOrientation.Landscape;
+				pageW = isLandscape ? base.h : base.w;
+				pageH = isLandscape ? base.w : base.h;
+			}
+		}
+
+		// Raw text the user is typing — lets us flag non-numeric input without
+		// clobbering the saved numeric value mid-keystroke.
+		const raw: Partial<Record<"top" | "bottom" | "left" | "right", string>> = {};
+
+		// Builds a margin text field and returns its onChange hook so the
+		// paired warning can be updated whenever either field changes.
+		const makeField = (
+			side: "top" | "bottom" | "left" | "right",
+			updateWarning: () => void,
+		) => {
+			new Setting(containerEl)
+				.setName(side.charAt(0).toUpperCase() + side.slice(1))
+				.setDesc(`${side.charAt(0).toUpperCase() + side.slice(1)} margin (${u})`)
+				.addText(text =>
+					text
+						.setPlaceholder("20")
+						.setValue(String(m[side]))
+						.onChange(async value => {
+							raw[side] = value;
+							const parsed = parseFloat(value);
+							if (!isNaN(parsed)) {
+								m[side] = parsed;
+								await this.save(this.settings);
+							}
+							updateWarning();
+						}),
+				);
+		};
+
+		// Converts mm back to the user's chosen unit for display.
+		const fromMm = (mm: number, unit: "mm" | "in" | "px"): number => {
+			if (unit === "in") return mm / 25.4;
+			if (unit === "px") return mm / 0.264583;
+			return mm;
+		};
+
+		// Renders warnings for a pair of sides into the given element.
+		const renderPairWarnings = (
+			el: HTMLDivElement,
+			sideA: "top" | "bottom" | "left" | "right",
+			sideB: "top" | "bottom" | "left" | "right",
+			pageLimit: number, // mm; 0 = custom page (skip size check)
+			dimension: "height" | "width",
+		) => {
+			el.empty();
+			const msgs: string[] = [];
+			const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+			for (const side of [sideA, sideB]) {
+				const r = raw[side];
+				if (r !== undefined && r.trim() !== "" && isNaN(parseFloat(r)))
+					msgs.push(`${cap(side)}: "${r}" is not a valid number.`);
+			}
+			for (const side of [sideA, sideB]) {
+				if (m[side] < 0)
+					msgs.push(`${cap(side)} margin is negative — content may overflow the page edge.`);
+			}
+			if (pageLimit > 0) {
+				const combined = toMm(m[sideA], u) + toMm(m[sideB], u);
+				const available = pageLimit - combined;
+				const availableDisplay = fromMm(Math.max(available, 0), u).toFixed(u === "in" ? 2 : 1);
+				const threshold = pageLimit * 0.10;
+
+				if (available <= 0) {
+					msgs.push(
+						`${cap(sideA)} + ${sideB} leaves no room for content — reduce margins to fit within the page ${dimension}.`,
+					);
+				} else if (available < threshold) {
+					msgs.push(
+						`Only ${availableDisplay} ${u} available for content (less than 10% of page ${dimension}).`,
+					);
+				}
+			}
+
+			for (const msg of msgs)
+				el.createEl("p", { text: msg, cls: "typeset-margin-warning" });
+		};
+
+		// ── Top & Bottom ──────────────────────────────────────────────────────
+		containerEl.createEl("p", { text: "Top & Bottom", cls: "typeset-margin-group-label" });
+		let tbWarning!: HTMLDivElement;
+		const updateTB = () => renderPairWarnings(tbWarning, "top", "bottom", pageH, "height");
+		makeField("top", updateTB);
+		makeField("bottom", updateTB);
+		tbWarning = containerEl.createDiv({ cls: "typeset-margin-pair-warning" });
+		updateTB();
+
+		// ── Left & Right ──────────────────────────────────────────────────────
+		containerEl.createEl("p", { text: "Left & Right", cls: "typeset-margin-group-label" });
+		let lrWarning!: HTMLDivElement;
+		const updateLR = () => renderPairWarnings(lrWarning, "left", "right", pageW, "width");
+		makeField("left", updateLR);
+		makeField("right", updateLR);
+		lrWarning = containerEl.createDiv({ cls: "typeset-margin-pair-warning" });
+		updateLR();
 
 		// --- Export ---
 		containerEl.createEl("h3", { text: "Export" });

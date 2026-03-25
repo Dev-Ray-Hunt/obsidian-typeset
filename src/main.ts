@@ -1,22 +1,10 @@
-import { Plugin } from "obsidian";
+import { Notice, Plugin, TFile } from "obsidian";
 import { TypesetSettings } from "./types";
 import {
 	loadSettings,
 	saveSettings,
 	TypesetSettingTab,
 } from "./settings";
-
-// TypesetPlugin is the entry point Obsidian calls when your plugin loads.
-// Every Obsidian plugin must export a single class that extends Plugin.
-//
-// Obsidian calls two lifecycle methods:
-//   onload()   — plugin is enabled (Obsidian starts, or user enables it in settings)
-//   onunload() — plugin is disabled (Obsidian quits, or user disables it in settings)
-//
-// Future issues will add commands, settings, and views inside onload().
-// Resources registered via this.addCommand(), this.registerEvent(), etc. are
-// automatically cleaned up by Obsidian when onunload() fires — no manual teardown
-// needed for those. Anything we allocate manually must be cleaned up in onunload().
 
 export default class TypesetPlugin extends Plugin {
 	settings!: TypesetSettings;
@@ -29,6 +17,40 @@ export default class TypesetPlugin extends Plugin {
 				saveSettings(this, settings),
 			),
 		);
+
+		// -----------------------------------------------------------------------
+		// Export helper — shared by both the command and the ribbon button.
+		// Lazily imports PdfExporter so the Electron/fs code is only loaded when
+		// the user actually triggers an export, not on every plugin load.
+		// -----------------------------------------------------------------------
+		const runExport = async () => {
+			const file = this.app.workspace.getActiveFile();
+			if (!(file instanceof TFile)) {
+				new Notice("No active note to export.");
+				return;
+			}
+			const { PdfExporter } = await import("./pdf-exporter");
+			const exporter = new PdfExporter(this.app, this.settings);
+			await exporter.export(file);
+		};
+
+		// -----------------------------------------------------------------------
+		// Command Palette entry
+		// Registered with addCommand() — Obsidian auto-cleans it on unload.
+		// Users can assign a hotkey via Settings → Hotkeys → "Typeset".
+		// -----------------------------------------------------------------------
+		this.addCommand({
+			id: "export-to-pdf",
+			name: "Export current note to PDF",
+			callback: runExport,
+		});
+
+		// -----------------------------------------------------------------------
+		// Ribbon button (left sidebar icon)
+		// "lucide-printer" is one of Obsidian's built-in Lucide icons.
+		// The returned element is ignored — Obsidian cleans it up on unload.
+		// -----------------------------------------------------------------------
+		this.addRibbonIcon("lucide-printer", "Export to PDF", runExport);
 
 		console.log(`Typeset: plugin loaded (v${this.manifest.version})`);
 	}
