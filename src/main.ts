@@ -1,5 +1,10 @@
 import { Plugin } from "obsidian";
-import type { TypesetSettings } from "./types";
+import { TypesetSettings } from "./types";
+import {
+	loadSettings,
+	saveSettings,
+	TypesetSettingTab,
+} from "./settings";
 
 // TypesetPlugin is the entry point Obsidian calls when your plugin loads.
 // Every Obsidian plugin must export a single class that extends Plugin.
@@ -14,7 +19,17 @@ import type { TypesetSettings } from "./types";
 // needed for those. Anything we allocate manually must be cleaned up in onunload().
 
 export default class TypesetPlugin extends Plugin {
+	settings!: TypesetSettings;
+
 	async onload(): Promise<void> {
+		this.settings = await loadSettings(this);
+
+		this.addSettingTab(
+			new TypesetSettingTab(this.app, this, this.settings, settings =>
+				saveSettings(this, settings),
+			),
+		);
+
 		console.log(`Typeset: plugin loaded (v${this.manifest.version})`);
 	}
 
