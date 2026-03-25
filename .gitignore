@@ -152,6 +152,10 @@ test-vault/.obsidian/workspace-mobile.json
 test-vault/.obsidian/cache
 test-vault/.obsidian/app.json
 
+# Symlink is machine-specific (absolute path) — each dev recreates it locally.
+# To recreate: ln -s "$(pwd)" "test-vault/.obsidian/plugins/obsidian-typeset"
+test-vault/.obsidian/plugins/obsidian-typeset
+
 # DO track: test-vault/.obsidian/plugins/ (symlink target set up in Issue #8)
 # DO track: test-vault/.obsidian/community-plugins.json (enables our plugin)
 # DO track: .typeset/ (user CSS themes — committed by design)
