@@ -1,10 +1,15 @@
 // block-class-parser.ts — Parses {.classname} block syntax
 // Implemented in Issue #24: Create block-class-parser.ts
 
-// Matches a standalone annotation line like {.class1 .class2} or { .class1 .class2 }
+// Matches a standalone annotation like {.class1 .class2} or { .class1 .class2 }
 // Supports optional whitespace inside braces for Javalent Markdown Attributes compatibility
-// Must be the entire line, each class prefixed with a dot, valid CSS identifiers
+// Must be the entire content, each class prefixed with a dot, valid CSS identifiers
 const ANNOTATION_REGEX = /^\{\s*(\.[a-zA-Z_][\w-]*(?:\s+\.[a-zA-Z_][\w-]*)*)\s*\}\s*$/;
+
+// Obsidian wraps every standalone line in a <p> tag when rendering.
+// This matches a <p> that contains ONLY an annotation — e.g.:
+//   <p dir="auto">{.stat-block}</p>
+const P_WRAPPED_ANNOTATION_RE = /^<p[^>]*>(\{[^<]+\})<\/p>$/;
 
 // Matches any block-level opening or closing tag
 const BLOCK_TAGS = "p|h[1-6]|ul|ol|li|blockquote|table|thead|tbody|tr|th|td|pre|div|figure|figcaption|section|article|aside|header|footer|main";
@@ -27,7 +32,12 @@ export function parseBlockClasses(html: string): string {
 
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
-		const match = line.match(ANNOTATION_REGEX);
+
+		// Unwrap Obsidian's <p> wrapper if the paragraph contains only an annotation.
+		// e.g. <p dir="auto">{.stat-block}</p>  →  {.stat-block}
+		const pWrap = line.match(P_WRAPPED_ANNOTATION_RE);
+		const annotationText = pWrap ? pWrap[1] : line;
+		const match = annotationText.match(ANNOTATION_REGEX);
 
 		if (!match) {
 			result.push(line);

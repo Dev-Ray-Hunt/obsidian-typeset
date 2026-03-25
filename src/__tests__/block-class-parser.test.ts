@@ -98,6 +98,21 @@ describe("parseBlockClasses", () => {
 		const output = parseBlockClasses(input);
 		expect(output).toContain('class="existing new-class"');
 	});
+
+	// Obsidian wraps standalone lines in <p> — annotation must still be detected
+	it("handles Obsidian-wrapped annotation <p dir=\"auto\">{.stat-block}</p>", () => {
+		const input = `<table>\n<tr><td>data</td></tr>\n</table>\n<p dir="auto">{.stat-block}</p>`;
+		const output = parseBlockClasses(input);
+		expect(output).toContain('<table class="stat-block">');
+		expect(output).not.toContain("{.stat-block}");
+	});
+
+	it("handles wrapped annotation applied to a paragraph", () => {
+		const input = `<p>Content</p>\n<p>{.highlight}</p>`;
+		const output = parseBlockClasses(input);
+		expect(output).toContain('<p class="highlight">Content</p>');
+		expect(output).not.toContain("{.highlight}");
+	});
 });
 
 describe("applyCalloutClasses", () => {
