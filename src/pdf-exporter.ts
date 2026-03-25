@@ -139,7 +139,6 @@ export class PdfExporter {
 		if (appContainer) appContainer.style.display = "none";
 
 		try {
-			throw new Error("Test error"); // ← add this
 			// ------------------------------------------------------------------
 			// Step 4: Call printToPDF on the current Obsidian window.
 			// We access Electron via require() — no new window needed.

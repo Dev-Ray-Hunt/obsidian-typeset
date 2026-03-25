@@ -13,7 +13,8 @@ const isProd = process.argv[2] === "production";
 // our own copies, we'd get duplicate instances that break Obsidian's internals.
 const obsidianExternals = [
   "obsidian",   // The Obsidian API itself
-  "electron",   // Electron APIs (used in pdf-exporter.ts for printToPDF)
+  "electron",          // Electron APIs (used in pdf-exporter.ts for printToPDF)
+  "@electron/remote",  // Electron 14+ remote module — lives inside Obsidian, not node_modules
 
   // CodeMirror 6 — Obsidian ships its own CM6 build. We reuse it in Issue #32
   // (In-Plugin CSS Editor) rather than bundling a separate copy.
@@ -29,6 +30,20 @@ const obsidianExternals = [
   "@lezer/highlight",
   "@lezer/lr",
 ];
+
+// ─── Timestamp plugin ─────────────────────────────────────────────────────────
+// Prints the wall-clock time after every build so you know exactly when the
+// last rebuild finished and can tell at a glance whether it picked up your save.
+const timestampPlugin = {
+  name: "timestamp",
+  setup(build) {
+    build.onEnd(() => {
+      const now = new Date();
+      const time = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      console.log(`⏱  Built at ${time}`);
+    });
+  },
+};
 
 // ─── esbuild context ─────────────────────────────────────────────────────────
 const context = await esbuild.context({
@@ -66,6 +81,8 @@ const context = await esbuild.context({
 
   // Print each build result (files, sizes, duration) to the terminal.
   logLevel: "info",
+
+  plugins: [timestampPlugin],
 });
 
 // ─── Run ─────────────────────────────────────────────────────────────────────

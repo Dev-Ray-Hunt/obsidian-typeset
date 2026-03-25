@@ -160,5 +160,27 @@ test-vault/.obsidian/plugins/obsidian-typeset
 # DO track: test-vault/.obsidian/community-plugins.json (enables our plugin)
 # DO track: .typeset/ (user CSS themes — committed by design)
 
+# Root-level Obsidian config (auto-generated, machine-specific)
+/.obsidian/
+
+# VS Code editor config
+.vscode/
+
+# Obsidian plugin data (auto-generated at runtime)
+data.json
+
+# Additional test-vault auto-generated files
+test-vault/.obsidian/appearance.json
+test-vault/.obsidian/canvas.json
+test-vault/.obsidian/core-plugins.json
+test-vault/.obsidian/hotkeys.json
+
+# Third-party plugins in test-vault (not our code)
+test-vault/.obsidian/plugins/hot-reload/
+test-vault/.obsidian/plugins/obsidian42-brat/
+
+# Snapshots (auto-generated)
+test-vault/Snapshot/
+
 # macOS
 .DS_Store
