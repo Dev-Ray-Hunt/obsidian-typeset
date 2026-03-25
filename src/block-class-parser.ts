@@ -1,9 +1,10 @@
 // block-class-parser.ts — Parses {.classname} block syntax
 // Implemented in Issue #24: Create block-class-parser.ts
 
-// Matches a standalone annotation line like {.class1 .class2}
+// Matches a standalone annotation line like {.class1 .class2} or { .class1 .class2 }
+// Supports optional whitespace inside braces for Javalent Markdown Attributes compatibility
 // Must be the entire line, each class prefixed with a dot, valid CSS identifiers
-const ANNOTATION_REGEX = /^\{(\.[a-zA-Z_][\w-]*(?:\s+\.[a-zA-Z_][\w-]*)*)\}\s*$/;
+const ANNOTATION_REGEX = /^\{\s*(\.[a-zA-Z_][\w-]*(?:\s+\.[a-zA-Z_][\w-]*)*)\s*\}\s*$/;
 
 /**
  * Parses {.classname} annotations in HTML and applies them as CSS classes
