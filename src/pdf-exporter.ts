@@ -2,6 +2,7 @@
 
 import { App, Component, MarkdownRenderer, Notice, Platform, TFile } from "obsidian";
 import { PageOrientation, PageSize, TypesetSettings } from "./types";
+import { applyCalloutClasses, parseBlockClasses } from "./block-class-parser";
 import { writeFileSync } from "fs";
 import { join } from "path";
 
@@ -56,7 +57,11 @@ export class PdfExporter {
 		);
 
 		component.unload();
-		const bodyHtml = container.innerHTML;
+		const rawHtml = container.innerHTML;
+
+		// Run the parser pipeline: callout classes first, then block annotations
+		const bodyHtml = parseBlockClasses(applyCalloutClasses(rawHtml));
+		console.log("[Typeset] Rendered HTML:", bodyHtml);
 
 		// ------------------------------------------------------------------
 		// Step 2: Resolve page dimensions and margin CSS
