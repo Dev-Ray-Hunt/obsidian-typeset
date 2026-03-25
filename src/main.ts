@@ -5,12 +5,15 @@ import {
 	saveSettings,
 	TypesetSettingTab,
 } from "./settings";
+import { CssManager } from "./css-manager";
 
 export default class TypesetPlugin extends Plugin {
 	settings!: TypesetSettings;
+	cssManager!: CssManager;
 
 	async onload(): Promise<void> {
 		this.settings = await loadSettings(this);
+		this.cssManager = new CssManager(this.app);
 
 		this.addSettingTab(
 			new TypesetSettingTab(this.app, this, this.settings, settings =>

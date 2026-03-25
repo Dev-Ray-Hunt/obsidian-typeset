@@ -1,4 +1,4 @@
-// css-manager.ts — Discovers and loads stylesheets from .typeset/
+// css-manager.ts — Discovers and loads stylesheets from the plugin folder
 // Implemented in Issue #27: Create css-manager.ts
 
 import { App } from "obsidian";
@@ -10,21 +10,26 @@ import {
 	ThemeInfo,
 } from "./types";
 
-const TYPESET_FOLDER = ".typeset";
+const PLUGIN_ID = "obsidian-typeset";
 
-// Built-in themes are always available regardless of vault contents.
-// CSS is loaded from the plugin's own styles/ folder at runtime.
+// Built-in themes ship in <plugin>/styles/ and are always available.
 const BUILT_IN_THEMES: ThemeInfo[] = [
 	{ name: "Default", filename: "default.css", isBuiltIn: true },
 	{ name: "D&D Homebrew", filename: "dnd-homebrew.css", isBuiltIn: true },
 ];
 
 export class CssManager {
-	constructor(private app: App) {}
+	private pluginDir: string;
+	private themesDir: string;
+
+	constructor(private app: App) {
+		this.pluginDir = `${app.vault.configDir}/plugins/${PLUGIN_ID}`;
+		this.themesDir = `${this.pluginDir}/themes`;
+	}
 
 	/**
 	 * Returns all available themes: built-ins first, then any .css files
-	 * found in <vault>/.typeset/. Never throws — missing folder returns
+	 * found in <plugin>/themes/. Never throws — missing folder returns
 	 * only built-ins.
 	 */
 	async getAvailableThemes(): Promise<ThemeInfo[]> {
@@ -34,38 +39,32 @@ export class CssManager {
 
 	/**
 	 * Loads the CSS string for a given theme.
-	 * Built-in themes are read from the plugin's styles/ directory.
-	 * User themes are read from <vault>/.typeset/<filename>.
+	 * Built-in themes come from <plugin>/styles/.
+	 * User themes come from <plugin>/themes/.
 	 * Returns an empty string if the file cannot be read.
 	 */
 	async loadThemeCss(theme: ThemeInfo): Promise<string> {
+		const subdir = theme.isBuiltIn ? "styles" : "themes";
+		const path = `${this.pluginDir}/${subdir}/${theme.filename}`;
 		try {
-			if (theme.isBuiltIn) {
-				// Built-in themes live next to main.js in the plugin folder
-				const pluginDir = this.app.vault.configDir + "/plugins/obsidian-typeset";
-				const path = `${pluginDir}/styles/${theme.filename}`;
-				return await this.app.vault.adapter.read(path);
-			} else {
-				const path = `${TYPESET_FOLDER}/${theme.filename}`;
-				return await this.app.vault.adapter.read(path);
-			}
+			return await this.app.vault.adapter.read(path);
 		} catch {
-			console.warn(`[Typeset] Could not load theme "${theme.filename}"`);
+			console.warn(`[Typeset] Could not load theme "${theme.filename}" from ${path}`);
 			return "";
 		}
 	}
 
 	/**
-	 * Scans <vault>/.typeset/ for .css files and returns a ThemeInfo for each.
+	 * Scans <plugin>/themes/ for .css files and returns a ThemeInfo for each.
 	 * Parses any layout override comment at the top of each file.
 	 * Returns [] if the folder doesn't exist or is empty.
 	 */
 	private async discoverUserThemes(): Promise<ThemeInfo[]> {
 		try {
-			const exists = await this.app.vault.adapter.exists(TYPESET_FOLDER);
+			const exists = await this.app.vault.adapter.exists(this.themesDir);
 			if (!exists) return [];
 
-			const { files } = await this.app.vault.adapter.list(TYPESET_FOLDER);
+			const { files } = await this.app.vault.adapter.list(this.themesDir);
 			const cssFiles = files.filter((f) => f.endsWith(".css"));
 
 			const themes: ThemeInfo[] = [];
@@ -91,7 +90,7 @@ export class CssManager {
 
 			return themes;
 		} catch (err) {
-			console.warn("[Typeset] Error scanning .typeset/ folder:", err);
+			console.warn("[Typeset] Error scanning themes folder:", err);
 			return [];
 		}
 	}
