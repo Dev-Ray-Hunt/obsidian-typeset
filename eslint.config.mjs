@@ -12,6 +12,16 @@ export default tseslint.config(
 		// the parser (@typescript-eslint/parser) and core TS-aware rules.
 		extends: [...tseslint.configs.recommended],
 
+		// Wire ESLint up to our tsconfig.json so type-aware rules work.
+		// Required for rules like no-floating-promises that need to know
+		// the actual TypeScript type of each expression.
+		languageOptions: {
+			parserOptions: {
+				project: true,
+				tsconfigRootDir: import.meta.dirname,
+			},
+		},
+
 		rules: {
 			// ── Variables ────────────────────────────────────────────────────
 			// Unused variables are usually bugs — but allow them when prefixed

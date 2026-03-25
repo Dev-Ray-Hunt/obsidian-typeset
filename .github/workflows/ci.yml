@@ -1,0 +1,55 @@
+name: CI
+
+# Run on every push to main and on every pull request.
+# This protects main from broken code — PRs must pass all checks before merging.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    name: Typecheck, Lint & Format
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Check out the code ───────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Node.js ───────────────────────────────────────────────────
+      # Use the LTS version. Cache npm dependencies so repeat runs are fast.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      # ── 3. Install dependencies ─────────────────────────────────────────────
+      # `npm ci` is stricter than `npm install`:
+      #   - Requires package-lock.json to exist
+      #   - Installs exact locked versions (no range resolution)
+      #   - Fails if package-lock.json is out of sync with package.json
+      # This guarantees CI uses the exact same packages as your local machine.
+      - name: Install dependencies
+        run: npm ci
+
+      # ── 4. Type check ───────────────────────────────────────────────────────
+      # tsc --noEmit checks all TypeScript files for type errors.
+      # If any file has a type error, this step fails and the PR is blocked.
+      - name: Typecheck
+        run: npm run typecheck
+
+      # ── 5. Lint ─────────────────────────────────────────────────────────────
+      # ESLint checks for code quality issues (floating promises, unused vars, etc.)
+      # If any rule is violated, this step fails and the PR is blocked.
+      - name: Lint
+        run: npm run lint
+
+      # ── 6. Format check ─────────────────────────────────────────────────────
+      # Prettier checks that all files match the formatting rules in .prettierrc.
+      # Does NOT rewrite files — just reports if anything is out of format.
+      # Run `npm run format` locally to fix any failures here.
+      - name: Format check
+        run: npm run format:check
