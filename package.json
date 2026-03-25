@@ -16,6 +16,8 @@
 		"test": "vitest run"
 	},
 	"devDependencies": {
+		"@codemirror/state": "^6.6.0",
+		"@codemirror/view": "^6.40.0",
 		"@types/node": "^22.0.0",
 		"builtin-modules": "^4.0.0",
 		"esbuild": "^0.25.0",

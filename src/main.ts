@@ -1,4 +1,6 @@
-import { Notice, Plugin, TFile } from "obsidian";
+import { Modal, Notice, Plugin, TFile } from "obsidian";
+import { EditorState } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 import { TypesetSettings } from "./types";
 import {
 	loadSettings,
@@ -62,6 +64,33 @@ export default class TypesetPlugin extends Plugin {
 					return;
 				}
 				new ThemePickerModal(this.app, file).open();
+			},
+		});
+
+		// -----------------------------------------------------------------------
+		// THROWAWAY — Issue #32: Prove CM6 works via Obsidian's bundled instance.
+		// This command is removed/replaced in Issue #33.
+		// -----------------------------------------------------------------------
+		this.addCommand({
+			id: "test-cm6-editor",
+			name: "Test CM6 editor (throwaway)",
+			callback: () => {
+				const modal = new (class extends Modal {
+					onOpen() {
+						const state = EditorState.create({
+							doc: "/* CM6 is working! Type here to confirm. */\n",
+						});
+						const view = new EditorView({
+							state,
+							parent: this.contentEl,
+						});
+						console.log("CM6 EditorView mounted", view);
+					}
+					onClose() {
+						this.contentEl.empty();
+					}
+				})(this.app);
+				modal.open();
 			},
 		});
 
