@@ -19,8 +19,7 @@ import { ThemeInfo } from "./types";
  *
  * Triggers for:
  *   ---
- *   typeset:
- *     theme: <cursor here>
+ *   typeset-theme: <cursor here>
  *   ---
  */
 export class TypesetThemeSuggest extends EditorSuggest<ThemeInfo> {
@@ -39,8 +38,8 @@ export class TypesetThemeSuggest extends EditorSuggest<ThemeInfo> {
 		if (!this.isInFrontmatter(cursor, editor)) return null;
 
 		const line = editor.getLine(cursor.line);
-		// Match any indented "theme: <value>" line
-		const match = line.match(/^(\s*theme:\s*)(.*)$/);
+		// Match a top-level "typeset-theme: <value>" line
+		const match = line.match(/^(typeset-theme:\s*)(.*)$/);
 		if (!match) return null;
 
 		const prefixLen = match[1].length;

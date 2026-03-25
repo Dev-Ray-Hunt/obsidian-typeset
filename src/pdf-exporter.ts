@@ -77,7 +77,7 @@ export class PdfExporter {
 		// ------------------------------------------------------------------
 		// Per-note frontmatter overrides global active theme (highest priority)
 		const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
-		const frontmatterTheme = frontmatter?.typeset?.theme as string | undefined;
+		const frontmatterTheme = frontmatter?.["typeset-theme"] as string | undefined;
 		const activeThemeName = frontmatterTheme ?? this.settings.activeTheme;
 
 		const themes = await this.cssManager.getAvailableThemes();
