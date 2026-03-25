@@ -1,0 +1,11 @@
+# Build output
+main.js
+
+# Dependencies
+node_modules/
+
+# Obsidian vault — not our code
+test-vault/
+
+# User CSS themes — formatting these could break intentional whitespace
+.typeset/
