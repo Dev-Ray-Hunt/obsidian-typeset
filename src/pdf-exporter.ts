@@ -69,43 +69,59 @@ export class PdfExporter {
 		console.log("[Typeset] Rendered HTML:", bodyHtml);
 
 		// ------------------------------------------------------------------
-		// Step 2: Resolve page dimensions and margin CSS
+		// Step 2: Load active theme and resolve effective layout.
+		//
+		// Priority (highest → lowest):
+		//   1. Theme layout overrides  (/* typeset-layout: ... */ comment)
+		//   2. Global plugin settings  (defaultLayout)
 		// ------------------------------------------------------------------
-		const { defaultLayout } = this.settings;
-		const { margins } = defaultLayout;
+		const themes = await this.cssManager.getAvailableThemes();
+		const activeTheme =
+			themes.find((t) => t.filename === this.settings.activeTheme) ?? themes[0];
+
+		const effectiveLayout = {
+			...this.settings.defaultLayout,
+			...activeTheme.layoutOverrides,
+			// margins is a nested object — merge explicitly so a theme that only
+			// sets size doesn't wipe out the user's margin settings
+			margins: activeTheme.layoutOverrides?.margins ?? this.settings.defaultLayout.margins,
+		};
+
+		console.log(`[Typeset] Effective layout: size=${effectiveLayout.size}, orientation=${effectiveLayout.orientation}, margins=${JSON.stringify(effectiveLayout.margins)}, theme="${activeTheme.name}"`);
+
+		// ------------------------------------------------------------------
+		// Step 3: Resolve page dimensions and margin CSS from effective layout
+		// ------------------------------------------------------------------
+		const { margins } = effectiveLayout;
 		const u = margins.unit;
 		const marginCss =
 			`${margins.top}${u} ${margins.right}${u} ${margins.bottom}${u} ${margins.left}${u}`;
 
-		const landscape = defaultLayout.orientation === PageOrientation.Landscape;
+		const landscape = effectiveLayout.orientation === PageOrientation.Landscape;
 
 		// Resolve pageSize to either a string ('A4', 'Letter', …) or a micron
 		// object for custom dimensions. Electron handles landscape separately.
 		let pageSize: string | { width: number; height: number };
 
 		if (
-			defaultLayout.size === PageSize.Custom &&
-			defaultLayout.customWidth &&
-			defaultLayout.customHeight
+			effectiveLayout.size === PageSize.Custom &&
+			effectiveLayout.customWidth &&
+			effectiveLayout.customHeight
 		) {
-			const w = toMicronsForCustom(defaultLayout.customWidth,  u);
-			const h = toMicronsForCustom(defaultLayout.customHeight, u);
+			const w = toMicronsForCustom(effectiveLayout.customWidth,  u);
+			const h = toMicronsForCustom(effectiveLayout.customHeight, u);
 			pageSize = landscape ? { width: h, height: w } : { width: w, height: h };
 		} else {
-			pageSize = PAGE_SIZE_STRINGS[defaultLayout.size as Exclude<PageSize, PageSize.Custom>]
+			pageSize = PAGE_SIZE_STRINGS[effectiveLayout.size as Exclude<PageSize, PageSize.Custom>]
 				?? "A4";
 		}
 
 		// ------------------------------------------------------------------
-		// Step 3: Load active theme CSS and inject into the page.
+		// Step 4: Load active theme CSS and inject into the page.
 		//
 		// We remap `body` selectors to `#typeset-print-root` so theme rules
 		// apply to our content div rather than Obsidian's actual <body>.
 		// ------------------------------------------------------------------
-		const themes = await this.cssManager.getAvailableThemes();
-		const activeTheme =
-			themes.find((t) => t.filename === this.settings.activeTheme) ??
-			themes[0];
 		const rawThemeCss = await this.cssManager.loadThemeCss(activeTheme);
 		const themeCss = rawThemeCss.replace(/\bbody\b/g, "#typeset-print-root");
 
@@ -114,8 +130,8 @@ export class PdfExporter {
 		themeStyle.textContent = themeCss;
 
 		// ------------------------------------------------------------------
-		// Print isolation styles — hide Obsidian's UI and expose only our
-		// print root. These take precedence over the theme via @media print.
+		// Step 5: Print isolation styles — hide Obsidian's UI and expose only
+		// our print root. These take precedence over the theme via @media print.
 		// ------------------------------------------------------------------
 		const printStyle = document.createElement("style");
 		printStyle.id = "typeset-print-style";
