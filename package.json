@@ -8,7 +8,7 @@
 
 	"scripts": {
 		"dev":           "node scripts/check-vault.mjs && node esbuild.config.mjs",
-		"build":         "node esbuild.config.mjs production",
+		"build":         "npm run typecheck && node esbuild.config.mjs production",
 		"typecheck":     "tsc --noEmit",
 		"lint":          "eslint src/",
 		"lint:fix":      "eslint src/ --fix",
