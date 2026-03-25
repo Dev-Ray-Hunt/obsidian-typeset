@@ -14,7 +14,7 @@ import { Plugin } from "obsidian";
 
 export default class TypesetPlugin extends Plugin {
 	async onload(): Promise<void> {
-		console.log("Typeset: plugin loaded");
+		console.log(`Typeset: plugin loaded (v${this.manifest.version})`);
 	}
 
 	onunload(): void {
