@@ -3,6 +3,7 @@
 import { App, Component, MarkdownRenderer, Notice, Platform, TFile } from "obsidian";
 import { PageOrientation, PageSize, TypesetSettings } from "./types";
 import { applyCalloutClasses, parseBlockClasses } from "./block-class-parser";
+import { CssManager } from "./css-manager";
 import { writeFileSync } from "fs";
 import { join } from "path";
 
@@ -32,7 +33,11 @@ function toMicronsForCustom(value: number, unit: "mm" | "in" | "px"): number {
 // PdfExporter
 // ---------------------------------------------------------------------------
 export class PdfExporter {
-	constructor(private app: App, private settings: TypesetSettings) {}
+	private cssManager: CssManager;
+
+	constructor(private app: App, private settings: TypesetSettings) {
+		this.cssManager = new CssManager(app);
+	}
 
 	async export(file: TFile): Promise<void> {
 		if (!Platform.isDesktop) {
@@ -92,12 +97,25 @@ export class PdfExporter {
 		}
 
 		// ------------------------------------------------------------------
-		// Step 3: Inject content into the existing Obsidian window.
+		// Step 3: Load active theme CSS and inject into the page.
 		//
-		// Creating a new BrowserWindow on macOS steals focus and creates a
-		// new Mission Control Space. Instead we inject our content directly
-		// into the current document and use @media print CSS to hide
-		// Obsidian's UI during PDF capture, then clean everything up.
+		// We remap `body` selectors to `#typeset-print-root` so theme rules
+		// apply to our content div rather than Obsidian's actual <body>.
+		// ------------------------------------------------------------------
+		const themes = await this.cssManager.getAvailableThemes();
+		const activeTheme =
+			themes.find((t) => t.filename === this.settings.activeTheme) ??
+			themes[0];
+		const rawThemeCss = await this.cssManager.loadThemeCss(activeTheme);
+		const themeCss = rawThemeCss.replace(/\bbody\b/g, "#typeset-print-root");
+
+		const themeStyle = document.createElement("style");
+		themeStyle.id = "typeset-theme-style";
+		themeStyle.textContent = themeCss;
+
+		// ------------------------------------------------------------------
+		// Print isolation styles — hide Obsidian's UI and expose only our
+		// print root. These take precedence over the theme via @media print.
 		// ------------------------------------------------------------------
 		const printStyle = document.createElement("style");
 		printStyle.id = "typeset-print-style";
@@ -123,9 +141,6 @@ export class PdfExporter {
 					max-width: none !important;
 					margin: 0 !important;
 					padding: 0 !important;
-					font-family: sans-serif;
-					font-size: 12pt;
-					line-height: 1.5;
 				}
 				.copy-code-button { display: none !important; }
 			}
@@ -135,6 +150,7 @@ export class PdfExporter {
 		printRoot.id = "typeset-print-root";
 		printRoot.innerHTML = bodyHtml;
 
+		document.head.appendChild(themeStyle);
 		document.head.appendChild(printStyle);
 		document.body.appendChild(printRoot);
 
@@ -189,6 +205,7 @@ export class PdfExporter {
 		} finally {
 			// Always restore Obsidian's UI and remove injected elements
 			if (appContainer) appContainer.style.display = "";
+			document.getElementById("typeset-theme-style")?.remove();
 			document.getElementById("typeset-print-style")?.remove();
 			document.getElementById("typeset-print-root")?.remove();
 		}
