@@ -45,6 +45,140 @@ export class TypesetSettingTab extends PluginSettingTab {
 
 		containerEl.createEl("h2", { text: "Typeset Settings" });
 
+		// --- Page Layout ---
+		containerEl.createEl("h3", { text: "Page Layout" });
+
+		new Setting(containerEl)
+			.setName("Page size")
+			.setDesc("Paper size used when exporting to PDF.")
+			.addDropdown(drop =>
+				drop
+					.addOptions({
+						[PageSize.A4]: "A4",
+						[PageSize.Letter]: "Letter",
+						[PageSize.Legal]: "Legal",
+						[PageSize.A5]: "A5",
+						[PageSize.Custom]: "Custom",
+					})
+					.setValue(this.settings.defaultLayout.size)
+					.onChange(async value => {
+						this.settings.defaultLayout.size = value as PageSize;
+						await this.save(this.settings);
+						this.display();
+					}),
+			);
+
+		if (this.settings.defaultLayout.size === PageSize.Custom) {
+			const unit = this.settings.defaultLayout.margins.unit;
+
+			new Setting(containerEl)
+				.setName("Custom width")
+				.setDesc(`Page width (${unit})`)
+				.addText(text =>
+					text
+						.setPlaceholder("210")
+						.setValue(
+							String(
+								this.settings.defaultLayout.customWidth ?? "",
+							),
+						)
+						.onChange(async value => {
+							const parsed = parseFloat(value);
+							this.settings.defaultLayout.customWidth = isNaN(
+								parsed,
+							)
+								? undefined
+								: Math.max(1, parsed);
+							await this.save(this.settings);
+						}),
+				);
+
+			new Setting(containerEl)
+				.setName("Custom height")
+				.setDesc(`Page height (${unit})`)
+				.addText(text =>
+					text
+						.setPlaceholder("297")
+						.setValue(
+							String(
+								this.settings.defaultLayout.customHeight ?? "",
+							),
+						)
+						.onChange(async value => {
+							const parsed = parseFloat(value);
+							this.settings.defaultLayout.customHeight = isNaN(
+								parsed,
+							)
+								? undefined
+								: Math.max(1, parsed);
+							await this.save(this.settings);
+						}),
+				);
+		}
+
+		new Setting(containerEl)
+			.setName("Orientation")
+			.setDesc("Portrait or Landscape.")
+			.addDropdown(drop =>
+				drop
+					.addOptions({
+						[PageOrientation.Portrait]: "Portrait",
+						[PageOrientation.Landscape]: "Landscape",
+					})
+					.setValue(this.settings.defaultLayout.orientation)
+					.onChange(async value => {
+						this.settings.defaultLayout.orientation =
+							value as PageOrientation;
+						await this.save(this.settings);
+					}),
+			);
+
+		// --- Margins ---
+		containerEl.createEl("h3", { text: "Margins" });
+
+		const marginUnit = this.settings.defaultLayout.margins.unit;
+
+		for (const side of ["top", "right", "bottom", "left"] as const) {
+			new Setting(containerEl)
+				.setName(`Margin — ${side}`)
+				.setDesc(`${side.charAt(0).toUpperCase() + side.slice(1)} margin (${marginUnit})`)
+				.addText(text =>
+					text
+						.setPlaceholder("20")
+						.setValue(
+							String(this.settings.defaultLayout.margins[side]),
+						)
+						.onChange(async value => {
+							const parsed = parseFloat(value);
+							this.settings.defaultLayout.margins[side] = isNaN(
+								parsed,
+							)
+								? 0
+								: Math.max(0, parsed);
+							await this.save(this.settings);
+						}),
+				);
+		}
+
+		new Setting(containerEl)
+			.setName("Margin unit")
+			.setDesc("Unit applied to all four margin values.")
+			.addDropdown(drop =>
+				drop
+					.addOptions({ mm: "mm", in: "in" })
+					.setValue(this.settings.defaultLayout.margins.unit)
+					.onChange(async value => {
+						this.settings.defaultLayout.margins.unit = value as
+							| "mm"
+							| "in"
+							| "px";
+						await this.save(this.settings);
+					}),
+			);
+
+		// --- Export ---
+		containerEl.createEl("h3", { text: "Export" });
+
 		new Setting(containerEl)
 			.setName("Output folder")
 			.setDesc(

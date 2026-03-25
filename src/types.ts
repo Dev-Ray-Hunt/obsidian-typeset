@@ -5,6 +5,7 @@ export enum PageSize {
 	Letter = "Letter",
 	Legal = "Legal",
 	A5 = "A5",
+	Custom = "Custom",
 }
 
 export enum PageOrientation {
@@ -24,6 +25,8 @@ export interface PageLayout {
 	size: PageSize;
 	orientation: PageOrientation;
 	margins: PageMargins;
+	customWidth?: number;  // used only when size === PageSize.Custom (in margin unit)
+	customHeight?: number; // used only when size === PageSize.Custom (in margin unit)
 }
 
 export interface TypesetSettings {
