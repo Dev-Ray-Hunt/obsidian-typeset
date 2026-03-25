@@ -39,6 +39,7 @@ export default class TypesetPlugin extends Plugin {
 			const exporter = new PdfExporter(this.app, this.settings);
 			await exporter.export(file);
 		};
+		
 
 		// -----------------------------------------------------------------------
 		// Command Palette entry
