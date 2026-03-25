@@ -1,0 +1,11 @@
+{
+	"id": "obsidian-typeset",
+	"name": "Typeset",
+	"version": "0.1.0",
+	"minAppVersion": "1.4.0",
+	"description": "Export notes to polished, print-ready PDFs using CSS-powered layout control.",
+	"author": "Brandon Hunt",
+	"authorUrl": "https://github.com/Dev-Ray-Hunt",
+	"fundingUrl": "",
+	"isDesktopOnly": true
+}
