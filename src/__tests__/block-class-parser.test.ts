@@ -2,7 +2,7 @@
 // Issue #25: Write unit tests for block class parser (Vitest)
 
 import { describe, it, expect } from "vitest";
-import { parseBlockClasses } from "../block-class-parser";
+import { parseBlockClasses, applyCalloutClasses } from "../block-class-parser";
 
 describe("parseBlockClasses", () => {
 	// 1. Single class applied to a paragraph
@@ -97,5 +97,55 @@ describe("parseBlockClasses", () => {
 		const input = `<p class="existing">A paragraph.</p>\n{.new-class}`;
 		const output = parseBlockClasses(input);
 		expect(output).toContain('class="existing new-class"');
+	});
+});
+
+describe("applyCalloutClasses", () => {
+	// Custom callout type gets callout-<type> class
+	it("adds callout-stat-block class to a stat-block callout", () => {
+		const input = `<div class="callout" data-callout="stat-block"><p>content</p></div>`;
+		const output = applyCalloutClasses(input);
+		expect(output).toContain("callout-stat-block");
+		expect(output).toContain('class="callout callout-stat-block"');
+	});
+
+	// Built-in callout type
+	it("adds callout-note class to a note callout", () => {
+		const input = `<div class="callout" data-callout="note"><p>content</p></div>`;
+		const output = applyCalloutClasses(input);
+		expect(output).toContain('class="callout callout-note"');
+	});
+
+	// Hyphenated custom type
+	it("handles hyphenated callout types like read-aloud", () => {
+		const input = `<div class="callout" data-callout="read-aloud"><p>content</p></div>`;
+		const output = applyCalloutClasses(input);
+		expect(output).toContain("callout-read-aloud");
+	});
+
+	// Existing classes are preserved
+	it("preserves all existing classes when adding the callout class", () => {
+		const input = `<div class="callout is-collapsible" data-callout="warning"><p>content</p></div>`;
+		const output = applyCalloutClasses(input);
+		expect(output).toContain("callout");
+		expect(output).toContain("is-collapsible");
+		expect(output).toContain("callout-warning");
+	});
+
+	// No callout divs → unchanged
+	it("returns the document unchanged when there are no callout divs", () => {
+		const input = `<p>No callouts here.</p>`;
+		expect(applyCalloutClasses(input)).toBe(input);
+	});
+
+	// Multiple callouts in one document
+	it("applies classes to all callout divs in the document", () => {
+		const input = [
+			`<div class="callout" data-callout="note"><p>Note</p></div>`,
+			`<div class="callout" data-callout="warning"><p>Warning</p></div>`,
+		].join("\n");
+		const output = applyCalloutClasses(input);
+		expect(output).toContain("callout-note");
+		expect(output).toContain("callout-warning");
 	});
 });

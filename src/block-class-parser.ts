@@ -88,6 +88,34 @@ export function parseBlockClasses(html: string): string {
 }
 
 /**
+ * Scans HTML for Obsidian callout divs and adds a `callout-<type>` class
+ * derived from the `data-callout` attribute value.
+ *
+ * Obsidian renders `> [!stat-block]` as:
+ *   <div class="callout" data-callout="stat-block">
+ *
+ * After this function it becomes:
+ *   <div class="callout callout-stat-block" data-callout="stat-block">
+ *
+ * Works for all callout types — built-in (note, warning, info, …) and custom.
+ * Existing classes are preserved; the new class is appended.
+ */
+export function applyCalloutClasses(html: string): string {
+	return html.replace(
+		/<div([^>]*)\bdata-callout="([^"]+)"([^>]*)>/g,
+		(fullMatch, before, calloutType, after) => {
+			const newClass = `callout-${calloutType}`;
+			// If there's already a class attribute, append to it
+			if (/\bclass="[^"]*"/.test(before) || /\bclass="[^"]*"/.test(after)) {
+				return fullMatch.replace(/\bclass="([^"]*)"/, `class="$1 ${newClass}"`);
+			}
+			// No class attribute yet — insert one
+			return `<div${before} class="${newClass}" data-callout="${calloutType}"${after}>`;
+		}
+	);
+}
+
+/**
  * Injects CSS class names directly at a known tag position within a line.
  * Appends to an existing class attribute if present, otherwise adds one.
  */
