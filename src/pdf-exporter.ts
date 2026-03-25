@@ -75,9 +75,14 @@ export class PdfExporter {
 		//   1. Theme layout overrides  (/* typeset-layout: ... */ comment)
 		//   2. Global plugin settings  (defaultLayout)
 		// ------------------------------------------------------------------
+		// Per-note frontmatter overrides global active theme (highest priority)
+		const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
+		const frontmatterTheme = frontmatter?.typeset?.theme as string | undefined;
+		const activeThemeName = frontmatterTheme ?? this.settings.activeTheme;
+
 		const themes = await this.cssManager.getAvailableThemes();
 		const activeTheme =
-			themes.find((t) => t.filename === this.settings.activeTheme) ?? themes[0];
+			themes.find((t) => t.filename === activeThemeName) ?? themes[0];
 
 		const effectiveLayout = {
 			...this.settings.defaultLayout,

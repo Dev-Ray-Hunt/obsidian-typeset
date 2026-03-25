@@ -6,6 +6,7 @@ import {
 	TypesetSettingTab,
 } from "./settings";
 import { CssManager } from "./css-manager";
+import { TypesetThemeSuggest } from "./typeset-suggest";
 
 export default class TypesetPlugin extends Plugin {
 	settings!: TypesetSettings;
@@ -14,6 +15,7 @@ export default class TypesetPlugin extends Plugin {
 	async onload(): Promise<void> {
 		this.settings = await loadSettings(this);
 		this.cssManager = new CssManager(this.app);
+		this.registerEditorSuggest(new TypesetThemeSuggest(this.app));
 
 		this.addSettingTab(
 			new TypesetSettingTab(this.app, this, this.settings, settings =>
