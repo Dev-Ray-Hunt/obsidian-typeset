@@ -1,4 +1,5 @@
 import { Plugin } from "obsidian";
+import type { TypesetSettings } from "./types";
 
 // TypesetPlugin is the entry point Obsidian calls when your plugin loads.
 // Every Obsidian plugin must export a single class that extends Plugin.
