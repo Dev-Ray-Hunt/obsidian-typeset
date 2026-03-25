@@ -7,6 +7,7 @@ import {
 } from "./settings";
 import { CssManager } from "./css-manager";
 import { TypesetThemeSuggest } from "./typeset-suggest";
+import { ThemePickerModal } from "./theme-picker-modal";
 
 export default class TypesetPlugin extends Plugin {
 	settings!: TypesetSettings;
@@ -48,6 +49,19 @@ export default class TypesetPlugin extends Plugin {
 			id: "export-to-pdf",
 			name: "Export current note to PDF",
 			callback: runExport,
+		});
+
+		this.addCommand({
+			id: "set-note-theme",
+			name: "Set theme for this note",
+			callback: () => {
+				const file = this.app.workspace.getActiveFile();
+				if (!(file instanceof TFile)) {
+					new Notice("No active note.");
+					return;
+				}
+				new ThemePickerModal(this.app, file).open();
+			},
 		});
 
 		// -----------------------------------------------------------------------
