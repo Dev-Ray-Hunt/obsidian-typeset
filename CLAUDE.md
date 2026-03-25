@@ -9,6 +9,7 @@ Immediately run the following and report back in this exact format:
 1. Run `git status` and `git log --oneline -5`
 2. Run `gh issue list --repo Dev-Ray-Hunt/obsidian-typeset --state open --milestone "$(gh api repos/Dev-Ray-Hunt/obsidian-typeset/milestones --jq '[.[] | select(.open_issues > 0)] | first | .title')" --json number,title --jq '.[] | "#\(.number) \(.title)"'`
 3. Identify the active milestone by finding the lowest-numbered milestone with open issues
+4. Tell Brandon to run `/rename <active milestone title>` to name the session (e.g. `/rename M2: Block Class Parser & CSS Injection`)
 
 Then respond with something like:
 
@@ -73,6 +74,13 @@ Before touching any code:
 
 ---
 
+## Long-Term Feature Ideas
+
+When Brandon wants to capture a future feature idea:
+- Create a GitHub issue and assign it to the **"Roadmap & Future Features"** milestone (milestone #7)
+- No need to worry about implementation details — just capture the idea clearly
+- These issues won't block any active milestone and can be promoted to a real milestone later
+
 ## Key References
 
 | Item | Location |
@@ -81,6 +89,7 @@ Before touching any code:
 | GitHub repo | https://github.com/Dev-Ray-Hunt/obsidian-typeset |
 | Project board | https://github.com/users/Dev-Ray-Hunt/projects/2 |
 | Issues | https://github.com/Dev-Ray-Hunt/obsidian-typeset/issues |
+| Roadmap milestone | https://github.com/Dev-Ray-Hunt/obsidian-typeset/milestone/7 |
 
 ---
 
