@@ -139,6 +139,7 @@ export class PdfExporter {
 		if (appContainer) appContainer.style.display = "none";
 
 		try {
+			throw new Error("Test error"); // ← add this
 			// ------------------------------------------------------------------
 			// Step 4: Call printToPDF on the current Obsidian window.
 			// We access Electron via require() — no new window needed.
@@ -175,12 +176,12 @@ export class PdfExporter {
 			const vaultPath = (this.app.vault.adapter as any).basePath as string;
 			writeFileSync(join(vaultPath, outputPath), pdfBuffer);
 
-			new Notice(`PDF saved: ${outputPath}`);
+			new Notice(`PDF saved to: ${outputPath}`, 5000);
 			console.log(`Typeset: PDF exported to "${outputPath}"`);
 
 		} catch (err) {
-			new Notice("PDF export failed. Check the console for details.");
-			console.error("Typeset: PDF export error", err);
+			new Notice("Export failed — check the developer console for details.", 0);
+			console.error("[Obsidian Typeset] Export failed:", err);
 		} finally {
 			// Always restore Obsidian's UI and remove injected elements
 			if (appContainer) appContainer.style.display = "";
