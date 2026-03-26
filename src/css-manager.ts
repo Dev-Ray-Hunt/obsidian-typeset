@@ -55,6 +55,18 @@ export class CssManager {
 	}
 
 	/**
+	 * Writes updated CSS content back to a user theme file on disk.
+	 * Built-in themes are read-only — calling this for one throws an Error.
+	 */
+	async saveThemeCss(theme: ThemeInfo, css: string): Promise<void> {
+		if (theme.isBuiltIn) {
+			throw new Error(`[Typeset] Cannot overwrite built-in theme "${theme.filename}"`);
+		}
+		const path = `${this.themesDir}/${theme.filename}`;
+		await this.app.vault.adapter.write(path, css);
+	}
+
+	/**
 	 * Scans <plugin>/themes/ for .css files and returns a ThemeInfo for each.
 	 * Parses any layout override comment at the top of each file.
 	 * Returns [] if the folder doesn't exist or is empty.
