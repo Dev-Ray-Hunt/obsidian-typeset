@@ -1,5 +1,6 @@
 import { Notice, Plugin, TFile } from "obsidian";
 import { CssEditorView, VIEW_TYPE_CSS_EDITOR } from "./css-editor-view";
+import { NewStylesheetModal } from "./new-stylesheet-modal";
 import { TypesetSettings } from "./types";
 import {
 	loadSettings,
@@ -87,6 +88,37 @@ export default class TypesetPlugin extends Plugin {
 				await this.app.workspace
 					.getLeaf(true)
 					.setViewState({ type: VIEW_TYPE_CSS_EDITOR, active: true });
+			},
+		});
+
+		// -----------------------------------------------------------------------
+		// New Stylesheet — prompts for a name, creates the file in .typeset/,
+		// sets it as the active theme, and opens it in the CSS editor.
+		// -----------------------------------------------------------------------
+		this.addCommand({
+			id: "new-stylesheet",
+			name: "New stylesheet",
+			callback: () => {
+				new NewStylesheetModal(this.app, async (filename) => {
+					try {
+						const STARTER = `/* typeset-layout: size=A4, orientation=Portrait */\n\n/* ========================\n   My Custom Theme\n   ======================== */\n\nbody {\n  font-family: Georgia, serif;\n  font-size: 11pt;\n  line-height: 1.5;\n}\n`;
+						await this.cssManager.createUserTheme(filename, STARTER);
+						this.settings.activeTheme = filename;
+						await saveSettings(this, this.settings);
+
+						// Close any existing CSS editor pane and open a fresh one
+						// so it loads the newly created file.
+						this.app.workspace
+							.getLeavesOfType(VIEW_TYPE_CSS_EDITOR)
+							.forEach(leaf => leaf.detach());
+						await this.app.workspace
+							.getLeaf(true)
+							.setViewState({ type: VIEW_TYPE_CSS_EDITOR, active: true });
+					} catch (err) {
+						console.error("[Typeset] Failed to create stylesheet:", err);
+						new Notice(`Typeset: ${(err as Error).message}`);
+					}
+				}).open();
 			},
 		});
 

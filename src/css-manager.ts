@@ -20,11 +20,11 @@ const BUILT_IN_THEMES: ThemeInfo[] = [
 
 export class CssManager {
 	private pluginDir: string;
-	private themesDir: string;
+	/** Vault-root-relative path where user stylesheets are stored. */
+	readonly themesDir = ".typeset";
 
 	constructor(private app: App) {
 		this.pluginDir = `${app.vault.configDir}/plugins/${PLUGIN_ID}`;
-		this.themesDir = `${this.pluginDir}/themes`;
 	}
 
 	/**
@@ -40,12 +40,13 @@ export class CssManager {
 	/**
 	 * Loads the CSS string for a given theme.
 	 * Built-in themes come from <plugin>/styles/.
-	 * User themes come from <plugin>/themes/.
+	 * User themes come from <vault>/.typeset/.
 	 * Returns an empty string if the file cannot be read.
 	 */
 	async loadThemeCss(theme: ThemeInfo): Promise<string> {
-		const subdir = theme.isBuiltIn ? "styles" : "themes";
-		const path = `${this.pluginDir}/${subdir}/${theme.filename}`;
+		const path = theme.isBuiltIn
+			? `${this.pluginDir}/styles/${theme.filename}`
+			: `${this.themesDir}/${theme.filename}`;
 		try {
 			return await this.app.vault.adapter.read(path);
 		} catch {
@@ -62,12 +63,33 @@ export class CssManager {
 		if (theme.isBuiltIn) {
 			throw new Error(`[Typeset] Cannot overwrite built-in theme "${theme.filename}"`);
 		}
-		const path = `${this.themesDir}/${theme.filename}`;
-		await this.app.vault.adapter.write(path, css);
+		await this.app.vault.adapter.write(`${this.themesDir}/${theme.filename}`, css);
 	}
 
 	/**
-	 * Scans <plugin>/themes/ for .css files and returns a ThemeInfo for each.
+	 * Creates a new user stylesheet in <vault>/.typeset/ and returns its ThemeInfo.
+	 * Creates the .typeset/ folder if it doesn't exist yet.
+	 * Throws if a file with that name already exists.
+	 */
+	async createUserTheme(filename: string, css: string): Promise<ThemeInfo> {
+		await this.ensureThemesDirExists();
+		const path = `${this.themesDir}/${filename}`;
+		if (await this.app.vault.adapter.exists(path)) {
+			throw new Error(`[Typeset] Stylesheet "${filename}" already exists`);
+		}
+		await this.app.vault.adapter.write(path, css);
+		const name = filename.replace(/\.css$/, "").replace(/[-_]/g, " ");
+		return { name: toTitleCase(name), filename, isBuiltIn: false };
+	}
+
+	private async ensureThemesDirExists(): Promise<void> {
+		if (!(await this.app.vault.adapter.exists(this.themesDir))) {
+			await this.app.vault.adapter.mkdir(this.themesDir);
+		}
+	}
+
+	/**
+	 * Scans <vault>/.typeset/ for .css files and returns a ThemeInfo for each.
 	 * Parses any layout override comment at the top of each file.
 	 * Returns [] if the folder doesn't exist or is empty.
 	 */
