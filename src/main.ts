@@ -25,8 +25,12 @@ export default class TypesetPlugin extends Plugin {
 		);
 
 		this.addSettingTab(
-			new TypesetSettingTab(this.app, this, this.settings, settings =>
-				saveSettings(this, settings),
+			new TypesetSettingTab(
+				this.app,
+				this,
+				this.settings,
+				settings => saveSettings(this, settings),
+				() => this.cssManager.getAvailableThemes(),
 			),
 		);
 

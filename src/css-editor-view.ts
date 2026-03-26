@@ -156,6 +156,9 @@ export class CssEditorView extends ItemView {
 		this.plugin.settings.activeTheme = theme.filename;
 		await saveSettings(this.plugin, this.plugin.settings);
 
+		// Force Obsidian to re-read getDisplayText() so the tab title updates.
+		(this.leaf as any).updateHeader?.();
+
 		const css = await this.plugin.cssManager.loadThemeCss(theme);
 		const isBuiltIn = theme.isBuiltIn;
 
