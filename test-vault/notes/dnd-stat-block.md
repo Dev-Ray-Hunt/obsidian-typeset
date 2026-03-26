@@ -1,3 +1,6 @@
+---
+typeset-theme: user-theme.css
+---
 # D&D Homebrew Test Note
 
 This note tests D&D-specific formatting: stat blocks, callouts, tables, and multi-column layout candidates.
@@ -83,16 +86,17 @@ A bright streak flashes from your pointing finger to a point you choose within r
 
 ## Encounter Table
 
-| d8 | Encounter |
-|:---:|---|
-| 1 | 1d4 Goblins |
-| 2 | 1 Hobgoblin Captain + 2 Hobgoblins |
-| 3 | 1d6 Giant Rats |
-| 4 | 1 Bandit Captain + 1d4 Bandits |
-| 5 | 1 Owlbear |
-| 6 | 2 Ogres |
-| 7 | 1 Young Green Dragon |
-| 8 | Roll twice, both encounters arrive simultaneously |
+| d8  | Encounter                                         |
+| :-: | ------------------------------------------------- |
+|  1  | 1d4 Goblins                                       |
+|  2  | 1 Hobgoblin Captain + 2 Hobgoblins                |
+|  3  | 1d6 Giant Rats                                    |
+|  4  | 1 Bandit Captain + 1d4 Bandits                    |
+|  5  | 1 Owlbear                                         |
+|  6  | 2 Ogres                                           |
+|  7  | 1 Young Green Dragon                              |
+|  8  | Roll twice, both encounters arrive simultaneously |
+{.stat-block}
 
 ---
 

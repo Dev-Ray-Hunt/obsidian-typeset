@@ -117,10 +117,9 @@ export class CssEditorView extends ItemView {
 
 		if (isBuiltIn) this.setStatus("Read-only (built-in theme)");
 
-		// Refresh both the tab title and the pane header title now that we
-		// know the actual active theme (getDisplayText() was called before
-		// onOpen() resolved the theme).
-		(this.leaf as any).updateHeader?.();
+		// getDisplayText() was called by Obsidian before onOpen() resolved
+		// the theme, so we force both the tab and the pane header to refresh.
+		this.refreshPaneTitle();
 	}
 
 	async onClose(): Promise<void> {
@@ -173,10 +172,7 @@ export class CssEditorView extends ItemView {
 		});
 
 		this.setStatus(isBuiltIn ? "Read-only (built-in theme)" : "");
-
-		// Refresh both the tab title and the pane header title now that
-		// this.activeTheme has changed.
-		(this.leaf as any).updateHeader?.();
+		this.refreshPaneTitle();
 	}
 
 	// ── Private helpers ───────────────────────────────────────────────────────
@@ -244,6 +240,25 @@ export class CssEditorView extends ItemView {
 			new Notice(
 				"Typeset: failed to save stylesheet. Check the console for details.",
 			);
+		}
+	}
+
+	/**
+	 * Refreshes the tab label and the pane header title.
+	 *
+	 * Obsidian calls getDisplayText() once when the view opens, before
+	 * onOpen() resolves the actual theme. updateHeader() refreshes the tab
+	 * but does not always update the separate .view-header-title element
+	 * inside the pane, so we write that DOM node directly as a fallback.
+	 */
+	private refreshPaneTitle(): void {
+		(this.leaf as any).updateHeader?.();
+
+		const titleEl = this.containerEl
+			.closest(".workspace-leaf")
+			?.querySelector(".view-header-title");
+		if (titleEl instanceof HTMLElement) {
+			titleEl.textContent = this.getDisplayText();
 		}
 	}
 

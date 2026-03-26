@@ -1,3 +1,7 @@
+---
+typeset-theme: user-theme.css
+---
+
 # Basic Markdown Test Note
 
 This note tests standard Markdown elements that every export must render correctly.
