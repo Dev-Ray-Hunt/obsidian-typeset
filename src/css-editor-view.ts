@@ -20,3 +20,61 @@
 //   and added as a devDependency in Issue #38.
 //
 // ─────────────────────────────────────────────────────────────────────────────
+
+import { ItemView, WorkspaceLeaf } from "obsidian";
+import { EditorState } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import type TypesetPlugin from "./main";
+
+export const VIEW_TYPE_CSS_EDITOR = "typeset-css-editor";
+
+export class CssEditorView extends ItemView {
+	private plugin: TypesetPlugin;
+	private cmView: EditorView | null = null;
+
+	constructor(leaf: WorkspaceLeaf, plugin: TypesetPlugin) {
+		super(leaf);
+		this.plugin = plugin;
+	}
+
+	getViewType(): string {
+		return VIEW_TYPE_CSS_EDITOR;
+	}
+
+	getDisplayText(): string {
+		return `CSS Editor — ${this.plugin.settings.activeTheme}`;
+	}
+
+	getIcon(): string {
+		return "lucide-file-code";
+	}
+
+	async onOpen(): Promise<void> {
+		const { contentEl } = this;
+		contentEl.empty();
+
+		// ── Header ──────────────────────────────────────────────────────────
+		const header = contentEl.createDiv({ cls: "typeset-css-editor-header" });
+		header.createSpan({ text: this.plugin.settings.activeTheme });
+
+		// ── Load active theme CSS ────────────────────────────────────────────
+		const themes = await this.plugin.cssManager.getAvailableThemes();
+		const activeThemeInfo = themes.find(
+			t => t.filename === this.plugin.settings.activeTheme,
+		);
+		const css = activeThemeInfo
+			? await this.plugin.cssManager.loadThemeCss(activeThemeInfo)
+			: "";
+
+		// ── CM6 editor ──────────────────────────────────────────────────────
+		const editorEl = contentEl.createDiv({ cls: "typeset-css-editor-cm" });
+
+		const state = EditorState.create({ doc: css });
+		this.cmView = new EditorView({ state, parent: editorEl });
+	}
+
+	async onClose(): Promise<void> {
+		this.cmView?.destroy();
+		this.cmView = null;
+	}
+}

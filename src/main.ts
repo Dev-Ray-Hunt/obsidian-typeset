@@ -1,6 +1,5 @@
-import { Modal, Notice, Plugin, TFile } from "obsidian";
-import { EditorState } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { Notice, Plugin, TFile } from "obsidian";
+import { CssEditorView, VIEW_TYPE_CSS_EDITOR } from "./css-editor-view";
 import { TypesetSettings } from "./types";
 import {
 	loadSettings,
@@ -19,6 +18,10 @@ export default class TypesetPlugin extends Plugin {
 		this.settings = await loadSettings(this);
 		this.cssManager = new CssManager(this.app);
 		this.registerEditorSuggest(new TypesetThemeSuggest(this.app));
+		this.registerView(
+			VIEW_TYPE_CSS_EDITOR,
+			leaf => new CssEditorView(leaf, this),
+		);
 
 		this.addSettingTab(
 			new TypesetSettingTab(this.app, this, this.settings, settings =>
@@ -68,29 +71,22 @@ export default class TypesetPlugin extends Plugin {
 		});
 
 		// -----------------------------------------------------------------------
-		// THROWAWAY — Issue #32: Prove CM6 works via Obsidian's bundled instance.
-		// This command is removed/replaced in Issue #33.
+		// Open CSS Editor — opens the CM6-powered CSS editor in a new pane.
+		// If a pane is already open, it is focused instead of duplicated.
 		// -----------------------------------------------------------------------
 		this.addCommand({
-			id: "test-cm6-editor",
-			name: "Test CM6 editor (throwaway)",
-			callback: () => {
-				const modal = new (class extends Modal {
-					onOpen() {
-						const state = EditorState.create({
-							doc: "/* CM6 is working! Type here to confirm. */\n",
-						});
-						const view = new EditorView({
-							state,
-							parent: this.contentEl,
-						});
-						console.log("CM6 EditorView mounted", view);
-					}
-					onClose() {
-						this.contentEl.empty();
-					}
-				})(this.app);
-				modal.open();
+			id: "open-css-editor",
+			name: "Open CSS editor",
+			callback: async () => {
+				const existing =
+					this.app.workspace.getLeavesOfType(VIEW_TYPE_CSS_EDITOR);
+				if (existing.length > 0) {
+					this.app.workspace.revealLeaf(existing[0]);
+					return;
+				}
+				await this.app.workspace
+					.getLeaf(true)
+					.setViewState({ type: VIEW_TYPE_CSS_EDITOR, active: true });
 			},
 		});
 
