@@ -1,6 +1,7 @@
 // css-editor-view.ts — CodeMirror 6 CSS editor Obsidian View
 // Implemented in Issue #33: Create css-editor-view.ts
 // Auto-save added in Issue #34: Implement auto-save on edit
+// Theme dropdown + note-aware opening added in Issue #36
 //
 // ── How we use CodeMirror 6 ──────────────────────────────────────────────────
 //
@@ -22,11 +23,12 @@
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { ItemView, Notice, WorkspaceLeaf } from "obsidian";
-import { EditorState } from "@codemirror/state";
+import { ItemView, Notice, TFile, WorkspaceLeaf } from "obsidian";
+import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, ViewUpdate } from "@codemirror/view";
 import type TypesetPlugin from "./main";
 import type { ThemeInfo } from "./types";
+import { saveSettings } from "./settings";
 
 export const VIEW_TYPE_CSS_EDITOR = "typeset-css-editor";
 
@@ -36,9 +38,12 @@ export class CssEditorView extends ItemView {
 	private plugin: TypesetPlugin;
 	private cmView: EditorView | null = null;
 	private activeTheme: ThemeInfo | null = null;
+	private allThemes: ThemeInfo[] = [];
 	private saveTimer: ReturnType<typeof setTimeout> | null = null;
 	private pendingSave = false;
 	private headerStatus: HTMLSpanElement | null = null;
+	private dropdown: HTMLSelectElement | null = null;
+	private readonly readOnlyCompartment = new Compartment();
 
 	constructor(leaf: WorkspaceLeaf, plugin: TypesetPlugin) {
 		super(leaf);
@@ -50,7 +55,7 @@ export class CssEditorView extends ItemView {
 	}
 
 	getDisplayText(): string {
-		return `CSS Editor — ${this.plugin.settings.activeTheme}`;
+		return `CSS Editor — ${this.activeTheme?.name ?? this.plugin.settings.activeTheme}`;
 	}
 
 	getIcon(): string {
@@ -61,41 +66,59 @@ export class CssEditorView extends ItemView {
 		const { contentEl } = this;
 		contentEl.empty();
 
+		// ── Load all themes ──────────────────────────────────────────────────
+		this.allThemes = await this.plugin.cssManager.getAvailableThemes();
+
+		// ── Resolve initial theme ────────────────────────────────────────────
+		// Prefer the active note's per-note theme (typeset-theme frontmatter),
+		// then fall back to the global active theme from settings.
+		const initialFilename = this.resolveInitialThemeFilename();
+		this.activeTheme =
+			this.allThemes.find(t => t.filename === initialFilename) ??
+			this.allThemes.find(t => t.filename === this.plugin.settings.activeTheme) ??
+			this.allThemes[0] ??
+			null;
+
 		// ── Header ──────────────────────────────────────────────────────────
 		const header = contentEl.createDiv({ cls: "typeset-css-editor-header" });
-		header.createSpan({ text: this.plugin.settings.activeTheme });
-		this.headerStatus = header.createSpan({ cls: "typeset-css-editor-status" });
 
-		// ── Resolve active theme ─────────────────────────────────────────────
-		const themes = await this.plugin.cssManager.getAvailableThemes();
-		this.activeTheme =
-			themes.find(t => t.filename === this.plugin.settings.activeTheme) ?? null;
+		this.dropdown = header.createEl("select", {
+			cls: "typeset-css-editor-dropdown",
+		});
+		this.buildDropdown();
+		this.dropdown.addEventListener("change", () => this.onDropdownChange());
 
+		this.headerStatus = header.createSpan({
+			cls: "typeset-css-editor-status",
+		});
+
+		// ── Load CSS ─────────────────────────────────────────────────────────
 		const css = this.activeTheme
 			? await this.plugin.cssManager.loadThemeCss(this.activeTheme)
 			: "";
 
 		// ── CM6 editor ──────────────────────────────────────────────────────
 		const editorEl = contentEl.createDiv({ cls: "typeset-css-editor-cm" });
+		const isBuiltIn = this.activeTheme?.isBuiltIn ?? false;
 
-		const extensions = this.activeTheme?.isBuiltIn
-			? [EditorState.readOnly.of(true)]
-			: [
-					EditorView.updateListener.of((update: ViewUpdate) => {
-						if (update.docChanged) this.scheduleSave();
-					}),
-			  ];
+		const state = EditorState.create({
+			doc: css,
+			extensions: [
+				this.readOnlyCompartment.of(EditorState.readOnly.of(isBuiltIn)),
+				EditorView.updateListener.of((update: ViewUpdate) => {
+					if (update.docChanged && !this.activeTheme?.isBuiltIn) {
+						this.scheduleSave();
+					}
+				}),
+			],
+		});
 
-		const state = EditorState.create({ doc: css, extensions });
 		this.cmView = new EditorView({ state, parent: editorEl });
 
-		if (this.activeTheme?.isBuiltIn) {
-			this.setStatus("Read-only (built-in theme)");
-		}
+		if (isBuiltIn) this.setStatus("Read-only (built-in theme)");
 	}
 
 	async onClose(): Promise<void> {
-		// Flush any pending debounced save before the view is torn down.
 		if (this.pendingSave) {
 			if (this.saveTimer !== null) {
 				clearTimeout(this.saveTimer);
@@ -107,7 +130,88 @@ export class CssEditorView extends ItemView {
 		this.cmView = null;
 	}
 
+	// ── Public API (for future three-pane sync — see REQUIREMENTS §5.3b) ─────
+
+	/**
+	 * Loads a theme into the editor. Called by the dropdown and will be called
+	 * by the workspace sync layer (Issue #69) when the active note changes.
+	 */
+	async loadTheme(theme: ThemeInfo): Promise<void> {
+		if (!this.cmView) return;
+		if (theme.filename === this.activeTheme?.filename) return;
+
+		// Flush pending save for the outgoing theme before switching.
+		if (this.pendingSave) {
+			if (this.saveTimer !== null) {
+				clearTimeout(this.saveTimer);
+				this.saveTimer = null;
+			}
+			await this.flushSave();
+		}
+
+		this.activeTheme = theme;
+		if (this.dropdown) this.dropdown.value = theme.filename;
+
+		// Persist the new selection as the global active theme.
+		this.plugin.settings.activeTheme = theme.filename;
+		await saveSettings(this.plugin, this.plugin.settings);
+
+		const css = await this.plugin.cssManager.loadThemeCss(theme);
+		const isBuiltIn = theme.isBuiltIn;
+
+		// Replace editor content and toggle read-only in one CM6 transaction.
+		this.cmView.dispatch({
+			changes: { from: 0, to: this.cmView.state.doc.length, insert: css },
+			effects: this.readOnlyCompartment.reconfigure(
+				EditorState.readOnly.of(isBuiltIn),
+			),
+		});
+
+		this.setStatus(isBuiltIn ? "Read-only (built-in theme)" : "");
+	}
+
 	// ── Private helpers ───────────────────────────────────────────────────────
+
+	/**
+	 * Returns the filename of the theme to load on open.
+	 * Checks the active note's typeset-theme frontmatter first.
+	 */
+	private resolveInitialThemeFilename(): string {
+		const activeFile = this.app.workspace.getActiveFile();
+		if (activeFile instanceof TFile) {
+			const fm =
+				this.app.metadataCache.getFileCache(activeFile)?.frontmatter;
+			const perNote = fm?.["typeset-theme"];
+			if (typeof perNote === "string" && perNote.trim()) return perNote;
+		}
+		return this.plugin.settings.activeTheme;
+	}
+
+	/** Rebuilds the <select> options from this.allThemes. */
+	private buildDropdown(): void {
+		if (!this.dropdown) return;
+		this.dropdown.empty();
+		for (const theme of this.allThemes) {
+			const label = theme.isBuiltIn
+				? `${theme.name} (built-in)`
+				: theme.name;
+			const opt = this.dropdown.createEl("option", {
+				text: label,
+				value: theme.filename,
+			});
+			if (theme.filename === this.activeTheme?.filename) {
+				opt.selected = true;
+			}
+		}
+	}
+
+	private async onDropdownChange(): Promise<void> {
+		if (!this.dropdown) return;
+		const theme = this.allThemes.find(
+			t => t.filename === this.dropdown!.value,
+		);
+		if (theme) await this.loadTheme(theme);
+	}
 
 	private scheduleSave(): void {
 		this.pendingSave = true;
@@ -128,7 +232,9 @@ export class CssEditorView extends ItemView {
 			setTimeout(() => this.setStatus(""), 2000);
 		} catch (err) {
 			console.error("[Typeset] Auto-save failed:", err);
-			new Notice("Typeset: failed to save stylesheet. Check the console for details.");
+			new Notice(
+				"Typeset: failed to save stylesheet. Check the console for details.",
+			);
 		}
 	}
 
