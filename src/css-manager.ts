@@ -20,11 +20,18 @@ const BUILT_IN_THEMES: ThemeInfo[] = [
 
 export class CssManager {
 	private pluginDir: string;
-	/** Vault-root-relative path where user stylesheets are stored. */
-	readonly themesDir = ".typeset";
+	/**
+	 * Path where user stylesheets are stored.
+	 * NOTE: This is <plugin>/themes/, NOT a vault-level .typeset/ folder.
+	 * The vault-level approach was attempted in Issue #35 but caused the
+	 * frontmatter theme autocomplete and picker to stop discovering themes.
+	 * All user theme I/O must go through this path.
+	 */
+	readonly themesDir: string;
 
 	constructor(private app: App) {
 		this.pluginDir = `${app.vault.configDir}/plugins/${PLUGIN_ID}`;
+		this.themesDir = `${this.pluginDir}/themes`;
 	}
 
 	/**
@@ -40,7 +47,7 @@ export class CssManager {
 	/**
 	 * Loads the CSS string for a given theme.
 	 * Built-in themes come from <plugin>/styles/.
-	 * User themes come from <vault>/.typeset/.
+	 * User themes come from <plugin>/themes/.
 	 * Returns an empty string if the file cannot be read.
 	 */
 	async loadThemeCss(theme: ThemeInfo): Promise<string> {
@@ -89,7 +96,7 @@ export class CssManager {
 	}
 
 	/**
-	 * Scans <vault>/.typeset/ for .css files and returns a ThemeInfo for each.
+	 * Scans <plugin>/themes/ for .css files and returns a ThemeInfo for each.
 	 * Parses any layout override comment at the top of each file.
 	 * Returns [] if the folder doesn't exist or is empty.
 	 */

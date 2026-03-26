@@ -148,3 +148,15 @@ test(scope): short description
 - Flag uncertainty — ask rather than guess
 - Explain what you're about to do before touching more than one file
 - All user-facing strings must be clear, friendly English — no jargon
+
+---
+
+## Architecture Decisions (Do Not Revisit Without Explicit Approval)
+
+### User theme storage: `<plugin>/themes/` NOT `<vault>/.typeset/`
+
+User stylesheets live in `<plugin>/themes/` (i.e. `app.vault.configDir + "/plugins/obsidian-typeset/themes/"`).
+
+A vault-level `.typeset/` directory was attempted in Issue #35 but caused the frontmatter theme autocomplete (`TypesetThemeSuggest`) and the theme picker modal (`ThemePickerModal`) to stop discovering user themes. Both of those classes construct their own `CssManager` instance, so any change to `themesDir` affects them directly.
+
+**Do not change the theme storage location without also verifying that `TypesetThemeSuggest` and `ThemePickerModal` still discover themes correctly.**
