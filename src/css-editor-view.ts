@@ -116,6 +116,11 @@ export class CssEditorView extends ItemView {
 		this.cmView = new EditorView({ state, parent: editorEl });
 
 		if (isBuiltIn) this.setStatus("Read-only (built-in theme)");
+
+		// Refresh both the tab title and the pane header title now that we
+		// know the actual active theme (getDisplayText() was called before
+		// onOpen() resolved the theme).
+		(this.leaf as any).updateHeader?.();
 	}
 
 	async onClose(): Promise<void> {
@@ -156,9 +161,6 @@ export class CssEditorView extends ItemView {
 		this.plugin.settings.activeTheme = theme.filename;
 		await saveSettings(this.plugin, this.plugin.settings);
 
-		// Force Obsidian to re-read getDisplayText() so the tab title updates.
-		(this.leaf as any).updateHeader?.();
-
 		const css = await this.plugin.cssManager.loadThemeCss(theme);
 		const isBuiltIn = theme.isBuiltIn;
 
@@ -171,6 +173,10 @@ export class CssEditorView extends ItemView {
 		});
 
 		this.setStatus(isBuiltIn ? "Read-only (built-in theme)" : "");
+
+		// Refresh both the tab title and the pane header title now that
+		// this.activeTheme has changed.
+		(this.leaf as any).updateHeader?.();
 	}
 
 	// ── Private helpers ───────────────────────────────────────────────────────
