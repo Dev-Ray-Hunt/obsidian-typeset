@@ -3,19 +3,16 @@
 
 import { App, Modal, Notice } from "obsidian";
 
-// Characters that are invalid in a stylesheet filename.
-// Blocks path traversal (../) and OS-reserved characters.
-const INVALID_FILENAME_RE = /[/\\:*?"<>|.]{2}|[/\\]/;
-
 /**
  * Validates a bare stylesheet name (without the .css extension).
  * Returns an error message string, or null if the name is valid.
+ * Only blocks characters that are truly invalid in filenames or dangerous for path traversal.
  */
 export function validateStylesheetName(name: string): string | null {
 	if (!name.trim()) return "Name cannot be empty.";
-	if (INVALID_FILENAME_RE.test(name))
-		return 'Name contains invalid characters ( / \\ : * ? " < > | or ..)';
-	if (name.startsWith(".")) return "Name cannot start with a dot.";
+	if (/[/\\]/.test(name)) return 'Name cannot contain slashes.';
+	if (name === ".." || name === ".") return "That's not a valid name.";
+	if (name.includes("..")) return 'Name cannot contain "..".';
 	return null;
 }
 
