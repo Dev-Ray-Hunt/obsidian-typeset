@@ -516,13 +516,14 @@ The MVP is a single, focused release that proves the core value proposition: **b
 **User Story:** As a user, I can open a CSS editor inside Obsidian to create and edit my custom stylesheets, with syntax highlighting.
 
 **Acceptance Criteria:**
-- A "CSS Editor" tab or section exists in the plugin settings pane.
+- A "Open CSS Editor" command opens the editor as an Obsidian `ItemView` pane.
 - The editor uses CodeMirror 6 with CSS syntax highlighting.
-- The editor shows the currently selected custom stylesheet.
-- A "New Stylesheet" button creates a new `.css` file in `<vault>/.typeset/user/`.
-- Changes are saved automatically (debounced, 500ms after last keystroke) OR via an explicit "Save" button.
-- The editor is resizable or full-height in the settings pane.
-- Attempting to edit a built-in theme shows an inline warning: "This is a built-in theme. Duplicate it to make changes."
+- **Note-aware opening:** When opened while a note is active, the editor loads that note's per-note theme (from `typeset-theme` frontmatter). Falls back to the global active theme if none is set.
+- A dropdown in the editor header lists all available themes (built-ins first, then user stylesheets). Switching the dropdown loads that stylesheet into the editor and updates the active theme.
+- A "New Stylesheet" command creates a new `.css` file in `<plugin>/themes/`.
+- Changes are saved automatically (debounced, 500ms after last keystroke).
+- Attempting to edit a built-in theme shows a read-only notice.
+- **Storage:** User stylesheets live in `<plugin>/themes/` (NOT `<vault>/.typeset/`). See Architecture Decisions in CLAUDE.md.
 
 ---
 
@@ -558,6 +559,7 @@ The MVP is a single, focused release that proves the core value proposition: **b
 - The preview includes a visual representation of page boundaries (dashed border or shadow showing page edges).
 - A "Export PDF" button is visible in the preview pane header for quick access.
 - The preview pane can be closed/toggled without affecting the note.
+- **Note-aware:** The preview always shows the theme for the currently active note (per-note `typeset-theme` frontmatter, falling back to the global active theme).
 
 ---
 
@@ -690,6 +692,24 @@ Export a note to a clean, standalone HTML file.
 - Self-contained HTML: CSS inlined in `<style>` tags, images base64-encoded.
 - Output is a single `.html` file — no external dependencies.
 - Suitable for email, web publishing, or offline sharing.
+
+---
+
+### 5.3b Three-Pane Synchronization — Note + Preview + CSS Editor (v2)
+
+**Vision:** The note editor, print preview, and CSS editor are all linked to the same document context. Changing any one of them updates the others automatically.
+
+**Desired behaviour:**
+- Opening the CSS editor while a note is active loads that note's theme (per-note `typeset-theme` frontmatter, or global active theme as fallback). *(Targeted in M3 Issue #36)*
+- Switching the active note updates the preview pane to show the new note.
+- Switching the active note also reloads the CSS editor to show that note's theme.
+- Switching the theme in the CSS editor dropdown updates the preview immediately (no export required).
+- Editing CSS in the editor triggers a debounced preview refresh so changes are visible live.
+
+**Implementation notes:**
+- Use Obsidian's `workspace.on('active-leaf-change')` and `metadataCache.on('changed')` events to detect note switches.
+- The CSS editor should expose a `loadTheme(theme: ThemeInfo)` method that the workspace event handler calls.
+- The preview should subscribe to a shared "active theme changed" event (or poll `settings.activeTheme`) to rerender.
 
 ---
 
