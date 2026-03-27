@@ -1,4 +1,6 @@
 import { Notice, Plugin, TFile } from "obsidian";
+import { CssEditorView, VIEW_TYPE_CSS_EDITOR } from "./css-editor-view";
+import { NewStylesheetModal } from "./new-stylesheet-modal";
 import { TypesetSettings } from "./types";
 import {
 	loadSettings,
@@ -17,10 +19,18 @@ export default class TypesetPlugin extends Plugin {
 		this.settings = await loadSettings(this);
 		this.cssManager = new CssManager(this.app);
 		this.registerEditorSuggest(new TypesetThemeSuggest(this.app));
+		this.registerView(
+			VIEW_TYPE_CSS_EDITOR,
+			leaf => new CssEditorView(leaf, this),
+		);
 
 		this.addSettingTab(
-			new TypesetSettingTab(this.app, this, this.settings, settings =>
-				saveSettings(this, settings),
+			new TypesetSettingTab(
+				this.app,
+				this,
+				this.settings,
+				settings => saveSettings(this, settings),
+				() => this.cssManager.getAvailableThemes(),
 			),
 		);
 
@@ -62,6 +72,77 @@ export default class TypesetPlugin extends Plugin {
 					return;
 				}
 				new ThemePickerModal(this.app, file).open();
+			},
+		});
+
+		// -----------------------------------------------------------------------
+		// Open CSS Editor — opens the CM6-powered CSS editor in a new pane.
+		// If a pane is already open, it is focused instead of duplicated.
+		// -----------------------------------------------------------------------
+		this.addCommand({
+			id: "open-css-editor",
+			name: "Open CSS editor",
+			callback: async () => {
+				const existing =
+					this.app.workspace.getLeavesOfType(VIEW_TYPE_CSS_EDITOR);
+				if (existing.length > 0) {
+					this.app.workspace.revealLeaf(existing[0]);
+					return;
+				}
+				await this.app.workspace
+					.getLeaf(true)
+					.setViewState({ type: VIEW_TYPE_CSS_EDITOR, active: true });
+			},
+		});
+
+		// -----------------------------------------------------------------------
+		// New Stylesheet — prompts for a name, creates the file in .typeset/,
+		// sets it as the active theme, and opens it in the CSS editor.
+		// -----------------------------------------------------------------------
+		this.addCommand({
+			id: "new-stylesheet",
+			name: "New stylesheet",
+			callback: () => {
+				new NewStylesheetModal(this.app, async (filename) => {
+					try {
+						const STARTER = `/* typeset-layout: size=A4, orientation=Portrait */\n\n/* ========================\n   My Custom Theme\n   ======================== */\n\nbody {\n  font-family: Georgia, serif;\n  font-size: 11pt;\n  line-height: 1.5;\n}\n`;
+						await this.cssManager.createUserTheme(filename, STARTER);
+						this.settings.activeTheme = filename;
+						await saveSettings(this, this.settings);
+
+						// Close any existing CSS editor pane and open a fresh one
+						// so it loads the newly created file.
+						this.app.workspace
+							.getLeavesOfType(VIEW_TYPE_CSS_EDITOR)
+							.forEach(leaf => leaf.detach());
+						await this.app.workspace
+							.getLeaf(true)
+							.setViewState({ type: VIEW_TYPE_CSS_EDITOR, active: true });
+					} catch (err) {
+						console.error("[Typeset] Failed to create stylesheet:", err);
+						new Notice(`Typeset: ${(err as Error).message}`);
+					}
+				}).open();
+			},
+		});
+
+		// -----------------------------------------------------------------------
+		// Focus CSS Editor Search — no default hotkey to avoid conflicting with
+		// Obsidian's built-in Cmd-F search. User assigns their own key via
+		// Settings → Hotkeys → "Typeset: Focus CSS editor search".
+		// -----------------------------------------------------------------------
+		this.addCommand({
+			id: "focus-css-editor-search",
+			name: "Focus CSS editor search",
+			callback: () => {
+				const leaves =
+					this.app.workspace.getLeavesOfType(VIEW_TYPE_CSS_EDITOR);
+				if (leaves.length === 0) return;
+				const view = leaves[0].view;
+				if (view instanceof CssEditorView) {
+					this.app.workspace.revealLeaf(leaves[0]);
+					view.focusSearch();
+				}
 			},
 		});
 

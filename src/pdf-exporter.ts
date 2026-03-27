@@ -69,30 +69,42 @@ export class PdfExporter {
 		console.log("[Typeset] Rendered HTML:", bodyHtml);
 
 		// ------------------------------------------------------------------
-		// Step 2: Load active theme and resolve effective layout.
+		// Step 2: Resolve themes and effective layout.
 		//
-		// Priority (highest → lowest):
-		//   1. Theme layout overrides  (/* typeset-layout: ... */ comment)
-		//   2. Global plugin settings  (defaultLayout)
+		// CSS cascade (lowest → highest priority):
+		//   1. Default theme     (settings.activeTheme)
+		//   2. Settings choices  (@page margins from settings UI)
+		//   3. Assigned theme    (typeset-theme frontmatter, if different)
+		//
+		// Layout cascade (same order — each level overrides the previous):
+		//   settings.defaultLayout → default theme layoutOverrides
+		//                          → assigned theme layoutOverrides
 		// ------------------------------------------------------------------
-		// Per-note frontmatter overrides global active theme (highest priority)
 		const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
-		const frontmatterTheme = frontmatter?.["typeset-theme"] as string | undefined;
-		const activeThemeName = frontmatterTheme ?? this.settings.activeTheme;
+		const assignedThemeName = frontmatter?.["typeset-theme"] as string | undefined;
+		const defaultThemeName  = this.settings.activeTheme;
 
 		const themes = await this.cssManager.getAvailableThemes();
-		const activeTheme =
-			themes.find((t) => t.filename === activeThemeName) ?? themes[0];
+		const defaultTheme  = themes.find(t => t.filename === defaultThemeName) ?? themes[0];
+		// Only treat as an override when it's a different theme from the default.
+		const assignedTheme = assignedThemeName && assignedThemeName !== defaultThemeName
+			? (themes.find(t => t.filename === assignedThemeName) ?? null)
+			: null;
 
-		const effectiveLayout = {
-			...this.settings.defaultLayout,
-			...activeTheme.layoutOverrides,
-			// margins is a nested object — merge explicitly so a theme that only
-			// sets size doesn't wipe out the user's margin settings
-			margins: activeTheme.layoutOverrides?.margins ?? this.settings.defaultLayout.margins,
-		};
+		// Merge layout: settings → default theme hints → assigned theme hints.
+		const effectiveLayout = mergeLayout(
+			this.settings.defaultLayout,
+			defaultTheme.layoutOverrides,
+			assignedTheme?.layoutOverrides,
+		);
 
-		console.log(`[Typeset] Effective layout: size=${effectiveLayout.size}, orientation=${effectiveLayout.orientation}, margins=${JSON.stringify(effectiveLayout.margins)}, theme="${activeTheme.name}"`);
+		console.log(
+			`[Typeset] Effective layout: size=${effectiveLayout.size}, ` +
+			`orientation=${effectiveLayout.orientation}, ` +
+			`margins=${JSON.stringify(effectiveLayout.margins)}, ` +
+			`defaultTheme="${defaultTheme.name}"` +
+			(assignedTheme ? `, assignedTheme="${assignedTheme.name}"` : ""),
+		);
 
 		// ------------------------------------------------------------------
 		// Step 3: Resolve page dimensions and margin CSS from effective layout
@@ -122,17 +134,22 @@ export class PdfExporter {
 		}
 
 		// ------------------------------------------------------------------
-		// Step 4: Load active theme CSS and inject into the page.
+		// Step 4: Load and inject theme CSS.
 		//
-		// We remap `body` selectors to `#typeset-print-root` so theme rules
+		// Injection order matches the cascade (later = higher priority):
+		//   1. typeset-base-theme-style   — default theme (broad base)
+		//   2. typeset-print-style        — @page margins + isolation (settings)
+		//   3. typeset-override-theme-style — assigned theme (most specific)
+		//
+		// `body` selectors are remapped to `#typeset-print-root` so theme rules
 		// apply to our content div rather than Obsidian's actual <body>.
 		// ------------------------------------------------------------------
-		const rawThemeCss = await this.cssManager.loadThemeCss(activeTheme);
-		const themeCss = rawThemeCss.replace(/\bbody\b/g, "#typeset-print-root");
+		const rawBaseCss = await this.cssManager.loadThemeCss(defaultTheme);
+		const baseCss    = rawBaseCss.replace(/\bbody\b/g, "#typeset-print-root");
 
 		const themeStyle = document.createElement("style");
-		themeStyle.id = "typeset-theme-style";
-		themeStyle.textContent = themeCss;
+		themeStyle.id = "typeset-base-theme-style";
+		themeStyle.textContent = baseCss;
 
 		// ------------------------------------------------------------------
 		// Step 5: Print isolation styles — hide Obsidian's UI and expose only
@@ -171,8 +188,20 @@ export class PdfExporter {
 		printRoot.id = "typeset-print-root";
 		printRoot.innerHTML = bodyHtml;
 
+		// Cascade order: base theme → settings → assigned theme override
 		document.head.appendChild(themeStyle);
 		document.head.appendChild(printStyle);
+
+		// Assigned theme (if different from default) injected last — highest priority.
+		if (assignedTheme) {
+			const rawOverrideCss = await this.cssManager.loadThemeCss(assignedTheme);
+			const overrideCss    = rawOverrideCss.replace(/\bbody\b/g, "#typeset-print-root");
+			const overrideStyle  = document.createElement("style");
+			overrideStyle.id     = "typeset-override-theme-style";
+			overrideStyle.textContent = overrideCss;
+			document.head.appendChild(overrideStyle);
+		}
+
 		document.body.appendChild(printRoot);
 
 		// Directly hide Obsidian's app container so its flex layout cannot
@@ -226,9 +255,35 @@ export class PdfExporter {
 		} finally {
 			// Always restore Obsidian's UI and remove injected elements
 			if (appContainer) appContainer.style.display = "";
-			document.getElementById("typeset-theme-style")?.remove();
+			document.getElementById("typeset-base-theme-style")?.remove();
+			document.getElementById("typeset-override-theme-style")?.remove();
 			document.getElementById("typeset-print-style")?.remove();
 			document.getElementById("typeset-print-root")?.remove();
 		}
 	}
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+import type { PageLayout } from "./types";
+
+/**
+ * Merges a base PageLayout with zero or more partial override layers.
+ * Layers are applied left-to-right; later layers win.
+ * `margins` is merged explicitly (it's a nested object).
+ */
+function mergeLayout(
+	base: PageLayout,
+	...overrides: (Partial<PageLayout> | undefined)[]
+): PageLayout {
+	let result = { ...base };
+	for (const override of overrides) {
+		if (!override) continue;
+		result = {
+			...result,
+			...override,
+			margins: override.margins ?? result.margins,
+		};
+	}
+	return result;
 }

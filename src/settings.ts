@@ -1,6 +1,7 @@
 // settings.ts — Plugin settings and Settings Tab UI
 
 import { AbstractInputSuggest, App, Plugin, PluginSettingTab, Setting, TFolder } from "obsidian";
+import type { ThemeInfo } from "./types";
 
 // FolderSuggest — attaches a vault folder autocomplete dropdown to any text input.
 // Extends Obsidian's AbstractInputSuggest so it matches the look and feel of
@@ -114,16 +115,19 @@ export async function saveSettings(
 export class TypesetSettingTab extends PluginSettingTab {
 	private settings: TypesetSettings;
 	private save: (settings: TypesetSettings) => Promise<void>;
+	private getThemes: () => Promise<ThemeInfo[]>;
 
 	constructor(
 		app: App,
 		plugin: Plugin,
 		settings: TypesetSettings,
 		save: (settings: TypesetSettings) => Promise<void>,
+		getThemes: () => Promise<ThemeInfo[]>,
 	) {
 		super(app, plugin);
 		this.settings = settings;
 		this.save = save;
+		this.getThemes = getThemes;
 	}
 
 	display(): void {
@@ -131,6 +135,36 @@ export class TypesetSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		containerEl.createEl("h2", { text: "Typeset Settings" });
+
+		// --- Default Theme ---
+		containerEl.createEl("h3", { text: "Default Theme" });
+
+		// Build a placeholder Setting immediately; populate the dropdown once
+		// getAvailableThemes() resolves (it's async — reads from disk).
+		const themeDropdownSetting = new Setting(containerEl)
+			.setName("Default theme")
+			.setDesc(
+				"Theme applied when a note has no typeset-theme set in its frontmatter.",
+			);
+
+		this.getThemes().then(themes => {
+			themeDropdownSetting.addDropdown(drop => {
+				for (const theme of themes) {
+					const label = theme.isBuiltIn
+						? `${theme.name} (built-in)`
+						: theme.name;
+					drop.addOption(theme.filename, label);
+				}
+				// Fall back gracefully if the saved value isn't in the list.
+				const saved = this.settings.activeTheme;
+				const valid = themes.find(t => t.filename === saved);
+				drop.setValue(valid ? saved : (themes[0]?.filename ?? ""));
+				drop.onChange(async value => {
+					this.settings.activeTheme = value;
+					await this.save(this.settings);
+				});
+			});
+		});
 
 		// --- Page Layout ---
 		containerEl.createEl("h3", { text: "Page Layout" });
