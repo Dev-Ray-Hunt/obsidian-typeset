@@ -183,6 +183,8 @@ export interface CssBlock {
 	selectorFrom: number;
 	/** End offset of the selector (start of the opening brace). */
 	selectorTo: number;
+	/** End offset of the closing brace — used to highlight the full rule block. */
+	blockTo: number;
 	/** All declarations found inside the rule's block. */
 	declarations: CssDeclaration[];
 }
@@ -229,7 +231,7 @@ export function extractCssBlocks(state: EditorState): CssBlock[] {
 			child = child.nextSibling;
 		}
 
-		blocks.push({ selectorText, selectorFrom, selectorTo, declarations });
+		blocks.push({ selectorText, selectorFrom, selectorTo, blockTo: blockNode.to, declarations });
 	});
 
 	return blocks;
@@ -262,9 +264,11 @@ function evalExpr(expr: BoolExpr, block: CssBlock): EvalResult {
 			const propRanges: CharRange[] = [];
 
 			if (block.selectorText.toLowerCase().includes(term)) {
+				// Highlight the entire rule block (selector + { ... }) not
+				// just the selector line, so the user sees the full context.
 				selectorRanges.push({
 					from: block.selectorFrom,
-					to: block.selectorTo,
+					to: block.blockTo,
 				});
 			}
 			for (const decl of block.declarations) {

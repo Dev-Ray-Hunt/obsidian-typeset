@@ -127,14 +127,13 @@ export default class TypesetPlugin extends Plugin {
 		});
 
 		// -----------------------------------------------------------------------
-		// Focus CSS Editor Search — Mod+F while the CSS editor is open.
-		// Registered as an Obsidian command so it appears in Settings → Hotkeys
-		// and can be rebound to any key the user prefers.
+		// Focus CSS Editor Search — no default hotkey to avoid conflicting with
+		// Obsidian's built-in Cmd-F search. User assigns their own key via
+		// Settings → Hotkeys → "Typeset: Focus CSS editor search".
 		// -----------------------------------------------------------------------
 		this.addCommand({
 			id: "focus-css-editor-search",
 			name: "Focus CSS editor search",
-			hotkeys: [{ modifiers: ["Mod"], key: "f" }],
 			callback: () => {
 				const leaves =
 					this.app.workspace.getLeavesOfType(VIEW_TYPE_CSS_EDITOR);
