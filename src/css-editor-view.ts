@@ -31,6 +31,7 @@ import { css as cssLanguage } from "@codemirror/lang-css";
 import type TypesetPlugin from "./main";
 import type { ThemeInfo } from "./types";
 import { saveSettings } from "./settings";
+import { cssSearchField, setSearchQuery } from "./css-search-query";
 
 export const VIEW_TYPE_CSS_EDITOR = "typeset-css-editor";
 
@@ -45,6 +46,7 @@ export class CssEditorView extends ItemView {
 	private pendingSave = false;
 	private headerStatus: HTMLSpanElement | null = null;
 	private dropdown: HTMLSelectElement | null = null;
+	private searchInput: HTMLInputElement | null = null;
 	private readonly readOnlyCompartment = new Compartment();
 
 	constructor(leaf: WorkspaceLeaf, plugin: TypesetPlugin) {
@@ -90,6 +92,20 @@ export class CssEditorView extends ItemView {
 		this.buildDropdown();
 		this.dropdown.addEventListener("change", () => this.onDropdownChange());
 
+		// ── Search input ─────────────────────────────────────────────────────
+		// Always visible. Cmd-F / Ctrl-F (registered in main.ts) focuses it.
+		this.searchInput = header.createEl("input", {
+			type: "text",
+			cls: "typeset-css-editor-search",
+			attr: { placeholder: "Search selectors & properties…" },
+		});
+		this.searchInput.addEventListener("input", () => {
+			if (!this.cmView) return;
+			this.cmView.dispatch({
+				effects: setSearchQuery.of(this.searchInput?.value ?? ""),
+			});
+		});
+
 		this.headerStatus = header.createSpan({
 			cls: "typeset-css-editor-status",
 		});
@@ -108,8 +124,10 @@ export class CssEditorView extends ItemView {
 			extensions: [
 				// CSS language support — bundled (Obsidian does not provide lang-css).
 				cssLanguage(),
-				// Token colouring — uses @codemirror/language which IS external (Obsidian provides it).
+				// Token colouring — uses @codemirror/language which IS external.
 				syntaxHighlighting(defaultHighlightStyle),
+				// Search highlight decorations — reacts to setSearchQuery effects.
+				cssSearchField,
 				this.readOnlyCompartment.of(EditorState.readOnly.of(isBuiltIn)),
 				EditorView.updateListener.of((update: ViewUpdate) => {
 					if (update.docChanged && !this.activeTheme?.isBuiltIn) {
@@ -140,7 +158,18 @@ export class CssEditorView extends ItemView {
 		this.cmView = null;
 	}
 
-	// ── Public API (for future three-pane sync — see REQUIREMENTS §5.3b) ─────
+	// ── Public API ────────────────────────────────────────────────────────────
+
+	/**
+	 * Focuses the search input and selects any existing text.
+	 * Called by the "Focus CSS editor search" command (Mod+F, reassignable
+	 * in Obsidian Settings → Hotkeys).
+	 */
+	focusSearch(): void {
+		if (!this.searchInput) return;
+		this.searchInput.focus();
+		this.searchInput.select();
+	}
 
 	/**
 	 * Loads a theme into the editor. Called by the dropdown and will be called
