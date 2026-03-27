@@ -525,6 +525,37 @@ The MVP is a single, focused release that proves the core value proposition: **b
 - Attempting to edit a built-in theme shows a read-only notice.
 - **Storage:** User stylesheets live in `<plugin>/themes/` (NOT `<vault>/.typeset/`). See Architecture Decisions in CLAUDE.md.
 
+#### 4.3a Feature: CSS Editor Search & Highlighting
+
+**User Story:** As a user, I can type into a search bar in the CSS editor to instantly find and highlight matching selectors and properties across the stylesheet.
+
+**Query Syntax:**
+- Terms are matched against both selector text and property names — no explicit selector/property split required.
+- **AND:** `+`, `&`, or `and` (all equivalent)
+- **OR:** `|` or `or` (all equivalent)
+- **Grouping:** `()` for precedence
+- Search is case-insensitive.
+
+**Examples:**
+```
+h1                       → highlight all h1 selector lines
+h1 and font-size         → h1 selector lines + font-size property lines inside h1 blocks
+(h1 | h2) and color      → h1/h2 selector lines + color property lines in those blocks
+(h1 & h2) or font        → blocks containing both h1 AND h2, OR any block with font
+```
+
+**Display Behaviour:**
+- **Selector matches** → entire selector line(s) highlighted in Colour A.
+- **Property matches** → matching property line(s) highlighted in Colour B.
+- Non-matching lines remain visible (no hiding).
+- Clearing the search removes all highlights.
+
+**Architecture (four clean layers — each independently testable):**
+1. **Query Parser** (`css-search-query.ts`) — parses raw string into a typed boolean expression AST.
+2. **CSS Block Extractor** — walks the Lezer syntax tree (already built by `lang-css`) to produce `CssBlock[]`: `{ selectorText, selectorLines, declarations: { property, lineRange }[] }`.
+3. **Match Evaluator** — evaluates the boolean AST against each `CssBlock`, returns `{ selectorRanges, propRanges }` per match.
+4. **CM6 Decoration Layer** — a `StateField<DecorationSet>` that reacts to document changes and query changes, applying `Decoration.mark()` with two CSS classes: `.typeset-search-selector` (Colour A) and `.typeset-search-property` (Colour B).
+
 ---
 
 ### 4.4 Feature: Block CSS Class Syntax
