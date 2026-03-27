@@ -26,6 +26,8 @@
 import { ItemView, Notice, TFile, WorkspaceLeaf } from "obsidian";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, ViewUpdate } from "@codemirror/view";
+import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
+import { css as cssLanguage } from "@codemirror/lang-css";
 import type TypesetPlugin from "./main";
 import type { ThemeInfo } from "./types";
 import { saveSettings } from "./settings";
@@ -104,6 +106,10 @@ export class CssEditorView extends ItemView {
 		const state = EditorState.create({
 			doc: css,
 			extensions: [
+				// CSS language support — bundled (Obsidian does not provide lang-css).
+				cssLanguage(),
+				// Token colouring — uses @codemirror/language which IS external (Obsidian provides it).
+				syntaxHighlighting(defaultHighlightStyle),
 				this.readOnlyCompartment.of(EditorState.readOnly.of(isBuiltIn)),
 				EditorView.updateListener.of((update: ViewUpdate) => {
 					if (update.docChanged && !this.activeTheme?.isBuiltIn) {
