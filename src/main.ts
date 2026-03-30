@@ -1,5 +1,6 @@
 import { Notice, Plugin, TFile } from "obsidian";
 import { CssEditorView, VIEW_TYPE_CSS_EDITOR } from "./css-editor-view";
+import { TypesetPreviewView, VIEW_TYPE_PREVIEW } from "./preview-view";
 import { NewStylesheetModal } from "./new-stylesheet-modal";
 import { TypesetSettings } from "./types";
 import {
@@ -22,6 +23,10 @@ export default class TypesetPlugin extends Plugin {
 		this.registerView(
 			VIEW_TYPE_CSS_EDITOR,
 			leaf => new CssEditorView(leaf, this),
+		);
+		this.registerView(
+			VIEW_TYPE_PREVIEW,
+			leaf => new TypesetPreviewView(leaf),
 		);
 
 		this.addSettingTab(
@@ -143,6 +148,26 @@ export default class TypesetPlugin extends Plugin {
 					this.app.workspace.revealLeaf(leaves[0]);
 					view.focusSearch();
 				}
+			},
+		});
+
+		// -----------------------------------------------------------------------
+		// Open Print Preview — opens the paginated HTML preview in the right pane.
+		// If already open, focuses it instead of duplicating.
+		// -----------------------------------------------------------------------
+		this.addCommand({
+			id: "open-print-preview",
+			name: "Open print preview",
+			callback: async () => {
+				const existing =
+					this.app.workspace.getLeavesOfType(VIEW_TYPE_PREVIEW);
+				if (existing.length > 0) {
+					this.app.workspace.revealLeaf(existing[0]);
+					return;
+				}
+				const leaf = this.app.workspace.getLeaf("split", "vertical");
+				await leaf.setViewState({ type: VIEW_TYPE_PREVIEW, active: true });
+				this.app.workspace.revealLeaf(leaf);
 			},
 		});
 
