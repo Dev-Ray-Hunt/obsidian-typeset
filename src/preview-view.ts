@@ -1,7 +1,8 @@
 // preview-view.ts — Split-pane print preview Obsidian View
 // M4 rework: iframe + srcdoc with live updates (Issues #39, #40, #42, #43)
 
-import { Component, ItemView, MarkdownRenderer, MarkdownView, TFile, WorkspaceLeaf } from "obsidian";
+import { Component, ItemView, MarkdownRenderer, MarkdownView, TFile, WorkspaceLeaf, setIcon } from "obsidian";
+import { VIEW_TYPE_CSS_EDITOR } from "./css-editor-view";
 import { PageLayout, PageOrientation, PageSize } from "./types";
 import type TypesetPlugin from "./main";
 
@@ -27,8 +28,18 @@ const PAGE_HEIGHT_PX: Record<Exclude<PageSize, PageSize.Custom>, number> = {
 export class TypesetPreviewView extends ItemView {
 	private plugin: TypesetPlugin;
 	private currentFile: TFile | null = null;
+	private lockedFile: TFile | null = null;
+	private lockButtonEl: HTMLElement | null = null;
+	private infoBarEl: HTMLElement | null = null;
+	private currentThemeName = "";
 	private iframeEl: HTMLIFrameElement | null = null;
 	private debounceTimer: number | null = null;
+
+	// ── Render cache ──────────────────────────────────────────────────────────
+	// Themes and CSS are re-loaded from disk only when the active theme changes,
+	// not on every keystroke. This eliminates the main source of render lag.
+	private cachedCss = "";
+	private cachedCssKey = ""; // "<defaultTheme>|<assignedTheme>" — cache key
 
 	constructor(leaf: WorkspaceLeaf, plugin: TypesetPlugin) {
 		super(leaf);
@@ -43,15 +54,33 @@ export class TypesetPreviewView extends ItemView {
 		const { contentEl } = this;
 		contentEl.addClass("typeset-preview-view");
 
-		// The iframe fills the entire pane and handles its own scrolling.
+		// ── Lock toggle button in pane header ─────────────────────────────────
+		this.lockButtonEl = this.addAction(
+			"lucide-lock-open",
+			"Lock preview to this note",
+			() => this.toggleLock(),
+		);
+
+		// ── Info bar — note name + theme name ────────────────────────────────────
+		this.infoBarEl = contentEl.createDiv({ cls: "typeset-preview-info-bar" });
+		this.infoBarEl.style.cssText =
+			"display:flex;align-items:center;gap:12px;padding:4px 12px;" +
+			"font-size:11px;color:var(--text-muted);border-bottom:1px solid var(--background-modifier-border);" +
+			"background:var(--background-secondary);flex-shrink:0;";
+
+		// Use flex on contentEl so info bar + iframe stack correctly.
+		contentEl.style.cssText = "display:flex;flex-direction:column;height:100%;overflow:hidden;padding:0;";
+
+		// The iframe fills remaining height and handles its own scrolling.
 		this.iframeEl = contentEl.createEl("iframe", {
 			attr: { frameborder: "0" },
 		});
-		this.iframeEl.style.cssText = "width:100%;height:100%;border:none;display:block;";
+		this.iframeEl.style.cssText = "width:100%;flex:1;min-height:0;border:none;display:block;";
 
 		// ── Live update: active note changes ───────────────────────────────────
 		this.registerEvent(
 			this.app.workspace.on("active-leaf-change", () => {
+				if (this.lockedFile) return; // locked — ignore navigation
 				const file = this.app.workspace.getActiveFile();
 				if (file instanceof TFile && file !== this.currentFile) {
 					void this.render(file);
@@ -64,8 +93,10 @@ export class TypesetPreviewView extends ItemView {
 		// editor-change fires on every keystroke, giving true live preview.
 		this.registerEvent(
 			this.app.workspace.on("editor-change", () => {
+				// When locked, only update if the locked file is being edited.
+				const watchFile = this.lockedFile ?? this.currentFile;
 				const file = this.app.workspace.getActiveFile();
-				if (!(file instanceof TFile) || file !== this.currentFile) return;
+				if (!(file instanceof TFile) || file !== watchFile) return;
 				if (this.debounceTimer !== null) window.clearTimeout(this.debounceTimer);
 				this.debounceTimer = window.setTimeout(() => {
 					this.debounceTimer = null;
@@ -92,7 +123,10 @@ export class TypesetPreviewView extends ItemView {
 			this.debounceTimer = null;
 		}
 		this.iframeEl = null;
+		this.infoBarEl = null;
 		this.currentFile = null;
+		this.lockedFile = null;
+		this.lockButtonEl = null;
 		this.contentEl.empty();
 	}
 
@@ -106,8 +140,8 @@ export class TypesetPreviewView extends ItemView {
 		if (!this.iframeEl) return;
 		this.currentFile = file;
 
-		// ── Step 1: Read markdown source ──────────────────────────────────────
-		const markdown = await this.app.vault.read(file);
+		// ── Step 1: Read markdown (from Obsidian's in-memory cache) ──────────────
+		const markdown = await this.app.vault.cachedRead(file);
 
 		// ── Step 2: Resolve themes and effective layout ───────────────────────
 		const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
@@ -126,6 +160,11 @@ export class TypesetPreviewView extends ItemView {
 			assignedThemeName && assignedThemeName !== defaultThemeName
 				? (themes.find(t => t.filename === assignedThemeName) ?? null)
 				: null;
+
+		// Update the info bar now that we have the file and theme names.
+		const displayTheme = assignedTheme ?? defaultTheme;
+		this.currentThemeName = displayTheme.name;
+		this.updateInfoBar(file, this.currentThemeName);
 
 		const effectiveLayout = mergeLayout(
 			this.plugin.settings.defaultLayout,
@@ -154,16 +193,22 @@ export class TypesetPreviewView extends ItemView {
 			pageHeightPx = landscape ? PAGE_WIDTH_PX[size]  : PAGE_HEIGHT_PX[size];
 		}
 
-		// ── Step 4: Build CSS string ──────────────────────────────────────────
+		// ── Step 4: Build CSS string (cached — skips disk reads while typing) ──
 		const { margins } = effectiveLayout;
 		const u = margins.unit;
 		const marginCss = `${margins.top}${u} ${margins.right}${u} ${margins.bottom}${u} ${margins.left}${u}`;
 
-		const baseCss = await this.plugin.cssManager.loadThemeCss(defaultTheme);
-		let themeCss = baseCss;
-		if (assignedTheme) {
-			themeCss += "\n" + await this.plugin.cssManager.loadThemeCss(assignedTheme);
+		const cssKey = `${defaultTheme.filename}|${assignedTheme?.filename ?? ""}`;
+		if (cssKey !== this.cachedCssKey) {
+			const baseCss = await this.plugin.cssManager.loadThemeCss(defaultTheme);
+			let themeCss = baseCss;
+			if (assignedTheme) {
+				themeCss += "\n" + await this.plugin.cssManager.loadThemeCss(assignedTheme);
+			}
+			this.cachedCss = themeCss;
+			this.cachedCssKey = cssKey;
 		}
+		const themeCss = this.cachedCss;
 
 		// ── Step 5: Render markdown to a live, document-attached temp container ─
 		// MarkdownRenderer requires the container to be in the live document tree
@@ -213,6 +258,97 @@ export class TypesetPreviewView extends ItemView {
 	}
 
 	// ── Private helpers ───────────────────────────────────────────────────────
+
+	private updateInfoBar(file: TFile, themeName: string): void {
+		if (!this.infoBarEl) return;
+		this.infoBarEl.empty();
+
+		const chipCss =
+			"display:flex;align-items:center;gap:4px;cursor:pointer;" +
+			"padding:2px 6px;border-radius:4px;transition:background 0.1s;" +
+			"color:var(--text-muted);";
+
+		// Note chip — click opens the note in the editor
+		const noteChip = this.infoBarEl.createSpan();
+		noteChip.style.cssText = chipCss;
+		noteChip.setAttribute("aria-label", "Open note in editor");
+		const noteIcon = noteChip.createSpan();
+		setIcon(noteIcon, this.lockedFile ? "lucide-lock" : "lucide-file-text");
+		noteIcon.style.cssText = "display:flex;align-items:center;width:12px;height:12px;";
+		noteChip.createSpan({ text: file.basename });
+		noteChip.addEventListener("mouseenter", () => noteChip.style.background = "var(--background-modifier-hover)");
+		noteChip.addEventListener("mouseleave", () => noteChip.style.background = "");
+		noteChip.addEventListener("click", () => void this.openNoteInEditor(file));
+
+		// Separator
+		this.infoBarEl.createSpan({ text: "·", attr: { style: "opacity:0.4;" } });
+
+		// Theme chip — click opens the CSS editor below this pane
+		const themeChip = this.infoBarEl.createSpan();
+		themeChip.style.cssText = chipCss;
+		themeChip.setAttribute("aria-label", "Open CSS editor");
+		const themeIcon = themeChip.createSpan();
+		setIcon(themeIcon, "lucide-palette");
+		themeIcon.style.cssText = "display:flex;align-items:center;width:12px;height:12px;";
+		themeChip.createSpan({ text: themeName });
+		themeChip.addEventListener("mouseenter", () => themeChip.style.background = "var(--background-modifier-hover)");
+		themeChip.addEventListener("mouseleave", () => themeChip.style.background = "");
+		themeChip.addEventListener("click", () => void this.openCssEditor());
+	}
+
+	private async openNoteInEditor(file: TFile): Promise<void> {
+		// Reveal the file if already open in a leaf, otherwise open to the LEFT.
+		const leaves = this.app.workspace.getLeavesOfType("markdown");
+		const existing = leaves.find(l => (l.view as MarkdownView).file === file);
+		if (existing) {
+			this.app.workspace.revealLeaf(existing);
+			return;
+		}
+		// createLeafBySplit(leaf, direction, before=true) inserts to the LEFT.
+		const leaf = (this.app.workspace as any).createLeafBySplit(this.leaf, "vertical", true);
+		await leaf.openFile(file);
+		this.app.workspace.revealLeaf(leaf);
+	}
+
+	private async openCssEditor(): Promise<void> {
+		// Reveal if already open.
+		const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_CSS_EDITOR);
+		if (existing.length > 0) {
+			this.app.workspace.revealLeaf(existing[0]);
+			return;
+		}
+		// Open in a horizontal split BELOW this preview pane.
+		const leaf = (this.app.workspace as any).createLeafBySplit(this.leaf, "horizontal", false);
+		await leaf.setViewState({ type: VIEW_TYPE_CSS_EDITOR, active: true });
+		this.app.workspace.revealLeaf(leaf);
+	}
+
+	private toggleLock(): void {
+		if (this.lockedFile) {
+			// Unlock — resume following active note
+			this.lockedFile = null;
+			if (this.lockButtonEl) {
+				setIcon(this.lockButtonEl, "lucide-lock-open");
+				this.lockButtonEl.setAttribute("aria-label", "Lock preview to this note");
+				this.lockButtonEl.removeClass("typeset-lock-active");
+			}
+			const file = this.findMarkdownFile();
+			if (file) void this.render(file); // render() will refresh the info bar
+		} else {
+			// Lock to the note currently shown
+			if (!this.currentFile) return;
+			this.lockedFile = this.currentFile;
+			if (this.lockButtonEl) {
+				setIcon(this.lockButtonEl, "lucide-lock");
+				this.lockButtonEl.setAttribute("aria-label", `Locked to: ${this.lockedFile.basename} — click to unlock`);
+				this.lockButtonEl.addClass("typeset-lock-active");
+			}
+			// Refresh info bar immediately so the lock icon updates without a re-render.
+			if (this.currentFile) {
+				this.updateInfoBar(this.currentFile, this.currentThemeName);
+			}
+		}
+	}
 
 	/**
 	 * Returns the active file if one is available, otherwise finds the most
