@@ -15,6 +15,7 @@ import { ThemePickerModal } from "./theme-picker-modal";
 export default class TypesetPlugin extends Plugin {
 	settings!: TypesetSettings;
 	cssManager!: CssManager;
+	
 
 	async onload(): Promise<void> {
 		this.settings = await loadSettings(this);
@@ -26,7 +27,7 @@ export default class TypesetPlugin extends Plugin {
 		);
 		this.registerView(
 			VIEW_TYPE_PREVIEW,
-			leaf => new TypesetPreviewView(leaf),
+			leaf => new TypesetPreviewView(leaf, this),
 		);
 
 		this.addSettingTab(
