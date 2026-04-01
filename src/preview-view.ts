@@ -6,7 +6,7 @@ import { VIEW_TYPE_CSS_EDITOR } from "./css-editor-view";
 import { ThemePickerModal } from "./theme-picker-modal";
 import { applyCalloutClasses, parseBlockClasses } from "./block-class-parser";
 import { PageLayout, PageOrientation, PageSize } from "./types";
-import { mergeLayout, resolveThemes, toPx } from "./document-builder";
+import { captureObsidianCss, mergeLayout, resolveThemes, toPx } from "./document-builder";
 import type TypesetPlugin from "./main";
 
 export const VIEW_TYPE_PREVIEW = "typeset-preview";
@@ -44,24 +44,6 @@ export class TypesetPreviewView extends ItemView {
 	// not on every keystroke. This eliminates the main source of render lag.
 	private cachedCss = "";
 	private cachedCssKey = ""; // "<defaultTheme>|<assignedTheme>" — cache key
-
-	// Obsidian's base CSS captured once from document.head.
-	// The PDF renders inside the main Obsidian window so all of Obsidian's CSS
-	// is already present — callout icons, colors, code highlighting, etc.
-	// The preview iframe has none of that unless we copy it in explicitly.
-	// We capture it once and reuse it for every render (it never changes).
-	private obsidianCss: string | null = null;
-
-	private getObsidianCss(): string {
-		if (this.obsidianCss === null) {
-			this.obsidianCss = Array.from(
-				document.querySelectorAll<HTMLStyleElement>("style"),
-			)
-				.map(s => s.textContent ?? "")
-				.join("\n");
-		}
-		return this.obsidianCss;
-	}
 
 	constructor(leaf: WorkspaceLeaf, plugin: TypesetPlugin) {
 		super(leaf);
@@ -444,7 +426,7 @@ export class TypesetPreviewView extends ItemView {
 			if (prevScroll > 0) scrollEl.scrollTop = prevScroll;
 		};
 
-		iframe.srcdoc = buildDocument(pageWidthPx, pageHeightPx, marginCss, this.getObsidianCss(), themeCss, renderedHtml);
+		iframe.srcdoc = buildDocument(pageWidthPx, pageHeightPx, marginCss, captureObsidianCss(), themeCss, renderedHtml);
 	}
 
 	// ── Private helpers ───────────────────────────────────────────────────────

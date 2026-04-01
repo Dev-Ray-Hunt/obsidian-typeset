@@ -7,6 +7,7 @@
 import { App, Component, MarkdownRenderer, TFile } from "obsidian";
 import { applyCalloutClasses, parseBlockClasses } from "./block-class-parser";
 import { CssManager } from "./css-manager";
+import { PageOrientation, PageSize } from "./types";
 import type { PageLayout, ThemeInfo, TypesetSettings } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -109,4 +110,115 @@ export function toPx(value: number, unit: "mm" | "in" | "px"): number {
 	if (unit === "mm") return Math.round((value * 96) / 25.4);
 	if (unit === "in") return Math.round(value * 96);
 	return Math.round(value);
+}
+
+// ---------------------------------------------------------------------------
+// Obsidian CSS capture
+// ---------------------------------------------------------------------------
+
+let cachedObsidianCss: string | null = null;
+
+/**
+ * Captures all <style> elements from Obsidian's main document.head.
+ * The result is cached for the lifetime of the plugin — Obsidian's styles
+ * don't change at runtime. Both preview-view and pdf-exporter use this
+ * to replicate Obsidian's visual environment in isolated contexts.
+ */
+export function captureObsidianCss(): string {
+	if (cachedObsidianCss === null) {
+		cachedObsidianCss = Array.from(
+			document.querySelectorAll<HTMLStyleElement>("style"),
+		)
+			.map(s => s.textContent ?? "")
+			.join("\n");
+	}
+	return cachedObsidianCss;
+}
+
+// ---------------------------------------------------------------------------
+// PDF document builder
+// ---------------------------------------------------------------------------
+
+/** @page size CSS value for standard page sizes. */
+const PAGE_SIZE_CSS: Record<Exclude<PageSize, PageSize.Custom>, string> = {
+	[PageSize.A4]:     "A4",
+	[PageSize.Letter]: "Letter",
+	[PageSize.Legal]:  "Legal",
+	[PageSize.A5]:     "A5",
+};
+
+export interface PdfHtmlOptions {
+	layout: PageLayout;
+	obsidianCss: string;
+	themeCss: string;
+	bodyHtml: string;
+}
+
+/**
+ * Builds a complete, self-contained HTML document for PDF rendering in
+ * an isolated BrowserWindow. Includes:
+ *   1. Obsidian's base CSS (callout icons, code highlighting, variables)
+ *   2. Theme CSS (fonts, sizes, colors)
+ *   3. @page rules for page geometry (size, orientation, margins)
+ *
+ * Because <body> IS the root element in the BrowserWindow, theme CSS
+ * `body` selectors work naturally — no remapping needed.
+ */
+export function buildPdfHtml(options: PdfHtmlOptions): string {
+	const { layout, obsidianCss, themeCss, bodyHtml } = options;
+	const { margins } = layout;
+	const u = margins.unit;
+	const marginCss =
+		`${margins.top}${u} ${margins.right}${u} ${margins.bottom}${u} ${margins.left}${u}`;
+	const landscape = layout.orientation === PageOrientation.Landscape;
+
+	// Resolve @page size value
+	let pageSizeCss: string;
+	if (
+		layout.size === PageSize.Custom &&
+		layout.customWidth &&
+		layout.customHeight
+	) {
+		const w = `${layout.customWidth}${u}`;
+		const h = `${layout.customHeight}${u}`;
+		pageSizeCss = landscape ? `${h} ${w}` : `${w} ${h}`;
+	} else {
+		const name = PAGE_SIZE_CSS[layout.size as Exclude<PageSize, PageSize.Custom>] ?? "A4";
+		pageSizeCss = `${name} ${landscape ? "landscape" : "portrait"}`;
+	}
+
+	return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+/* ══════════════════════════════════════════════════════════════════════════
+   LAYER 1 — Obsidian's base CSS
+   ══════════════════════════════════════════════════════════════════════════ */
+${obsidianCss}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   LAYER 2 — Typeset theme CSS
+   ══════════════════════════════════════════════════════════════════════════ */
+${themeCss}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   LAYER 3 — PDF page geometry and resets
+   ══════════════════════════════════════════════════════════════════════════ */
+@page {
+  size: ${pageSizeCss};
+  margin: ${marginCss};
+}
+html, body {
+  margin: 0;
+  padding: 0;
+  background: white;
+}
+.copy-code-button { display: none; }
+</style>
+</head>
+<body class="markdown-rendered">
+${bodyHtml}
+</body>
+</html>`;
 }

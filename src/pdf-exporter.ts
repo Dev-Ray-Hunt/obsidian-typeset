@@ -3,7 +3,13 @@
 import { App, Notice, Platform, TFile } from "obsidian";
 import { PageOrientation, PageSize, TypesetSettings } from "./types";
 import { CssManager } from "./css-manager";
-import { mergeLayout, renderMarkdownToHtml, resolveThemes } from "./document-builder";
+import {
+	buildPdfHtml,
+	captureObsidianCss,
+	mergeLayout,
+	renderMarkdownToHtml,
+	resolveThemes,
+} from "./document-builder";
 import { writeFileSync } from "fs";
 import { join } from "path";
 
@@ -84,122 +90,70 @@ export class PdfExporter {
 		);
 
 		// ------------------------------------------------------------------
-		// Step 3: Resolve page dimensions and margin CSS from effective layout
-		// ------------------------------------------------------------------
-		const { margins } = effectiveLayout;
-		const u = margins.unit;
-		const marginCss =
-			`${margins.top}${u} ${margins.right}${u} ${margins.bottom}${u} ${margins.left}${u}`;
-
-		const landscape = effectiveLayout.orientation === PageOrientation.Landscape;
-
-		// Resolve pageSize to either a string ('A4', 'Letter', …) or a micron
-		// object for custom dimensions. Electron handles landscape separately.
-		let pageSize: string | { width: number; height: number };
-
-		if (
-			effectiveLayout.size === PageSize.Custom &&
-			effectiveLayout.customWidth &&
-			effectiveLayout.customHeight
-		) {
-			const w = toMicronsForCustom(effectiveLayout.customWidth,  u);
-			const h = toMicronsForCustom(effectiveLayout.customHeight, u);
-			pageSize = landscape ? { width: h, height: w } : { width: w, height: h };
-		} else {
-			pageSize = PAGE_SIZE_STRINGS[effectiveLayout.size as Exclude<PageSize, PageSize.Custom>]
-				?? "A4";
-		}
-
-		// ------------------------------------------------------------------
-		// Step 4: Load and inject theme CSS.
+		// Step 3: Load theme CSS and build self-contained HTML document.
 		//
-		// Injection order matches the cascade (later = higher priority):
-		//   1. typeset-base-theme-style   — default theme (broad base)
-		//   2. typeset-print-style        — @page margins + isolation (settings)
-		//   3. typeset-override-theme-style — assigned theme (most specific)
-		//
-		// `body` selectors are remapped to `#typeset-print-root` so theme rules
-		// apply to our content div rather than Obsidian's actual <body>.
+		// Theme CSS `body` selectors work naturally in the isolated
+		// BrowserWindow — no regex remapping needed.
 		// ------------------------------------------------------------------
-		const rawBaseCss = await this.cssManager.loadThemeCss(defaultTheme);
-		const baseCss    = rawBaseCss.replace(/\bbody\b/g, "#typeset-print-root");
-
-		const themeStyle = document.createElement("style");
-		themeStyle.id = "typeset-base-theme-style";
-		themeStyle.textContent = baseCss;
-
-		// ------------------------------------------------------------------
-		// Step 5: Print isolation styles — hide Obsidian's UI and expose only
-		// our print root. These take precedence over the theme via @media print.
-		// ------------------------------------------------------------------
-		const printStyle = document.createElement("style");
-		printStyle.id = "typeset-print-style";
-		printStyle.textContent = `
-			@page { margin: ${marginCss}; }
-			@media print {
-				html, body {
-					overflow: visible !important;
-					height: auto !important;
-					min-height: 0 !important;
-					width: 100% !important;
-					margin: 0 !important;
-					padding: 0 !important;
-				}
-				body > *:not(#typeset-print-root) {
-					display: none !important;
-					visibility: hidden !important;
-				}
-				#typeset-print-root {
-					display: block !important;
-					visibility: visible !important;
-					width: 100% !important;
-					max-width: none !important;
-					margin: 0 !important;
-					padding: 0 !important;
-				}
-				.copy-code-button { display: none !important; }
-			}
-		`;
-
-		const printRoot = document.createElement("div");
-		printRoot.id = "typeset-print-root";
-		printRoot.classList.add("markdown-rendered");
-		printRoot.innerHTML = bodyHtml;
-
-		// Cascade order: base theme → settings → assigned theme override
-		document.head.appendChild(themeStyle);
-		document.head.appendChild(printStyle);
-
-		// Assigned theme (if different from default) injected last — highest priority.
+		let themeCss = await this.cssManager.loadThemeCss(defaultTheme);
 		if (assignedTheme) {
-			const rawOverrideCss = await this.cssManager.loadThemeCss(assignedTheme);
-			const overrideCss    = rawOverrideCss.replace(/\bbody\b/g, "#typeset-print-root");
-			const overrideStyle  = document.createElement("style");
-			overrideStyle.id     = "typeset-override-theme-style";
-			overrideStyle.textContent = overrideCss;
-			document.head.appendChild(overrideStyle);
+			themeCss += "\n" + await this.cssManager.loadThemeCss(assignedTheme);
 		}
 
-		document.body.appendChild(printRoot);
+		const html = buildPdfHtml({
+			layout: effectiveLayout,
+			obsidianCss: captureObsidianCss(),
+			themeCss,
+			bodyHtml,
+		});
 
-		// Directly hide Obsidian's app container so its flex layout cannot
-		// affect how our print root is positioned during capture.
-		const appContainer = document.querySelector<HTMLElement>(".app-container");
-		if (appContainer) appContainer.style.display = "none";
+		// ------------------------------------------------------------------
+		// Step 4: Render PDF in an isolated BrowserWindow.
+		//
+		// This avoids mutating Obsidian's live DOM entirely — no hiding
+		// .app-container, no injecting styles, no cleanup needed.
+		// ------------------------------------------------------------------
+		// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
+		const electron = (require as any)("electron");
+		// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
+		const remote = electron.remote ?? (require as any)("@electron/remote");
+		const { BrowserWindow } = remote;
+
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const win = new BrowserWindow({
+			show: false,
+			width: 800,
+			height: 600,
+			webPreferences: { javascript: true },
+		});
 
 		try {
-			// ------------------------------------------------------------------
-			// Step 4: Call printToPDF on the current Obsidian window.
-			// We access Electron via require() — no new window needed.
-			// ------------------------------------------------------------------
-			// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
-			const electron = (require as any)("electron");
-			// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
-			const remote = electron.remote ?? (require as any)("@electron/remote");
-			const currentWin = remote.getCurrentWindow();
+			// Load HTML via a data URI. encodeURIComponent handles all special
+			// characters and avoids the escaping pitfalls of document.write().
+			await win.loadURL(
+				`data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
+			);
 
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const pdfBuffer: Buffer = await currentWin.webContents.printToPDF({
+			// Resolve Electron page size for printToPDF options.
+			const { margins } = effectiveLayout;
+			const u = margins.unit;
+			const landscape = effectiveLayout.orientation === PageOrientation.Landscape;
+
+			let pageSize: string | { width: number; height: number };
+			if (
+				effectiveLayout.size === PageSize.Custom &&
+				effectiveLayout.customWidth &&
+				effectiveLayout.customHeight
+			) {
+				const w = toMicronsForCustom(effectiveLayout.customWidth, u);
+				const h = toMicronsForCustom(effectiveLayout.customHeight, u);
+				pageSize = landscape ? { width: h, height: w } : { width: w, height: h };
+			} else {
+				pageSize = PAGE_SIZE_STRINGS[effectiveLayout.size as Exclude<PageSize, PageSize.Custom>]
+					?? "A4";
+			}
+
+			const pdfBuffer: Buffer = await win.webContents.printToPDF({
 				pageSize,
 				landscape,
 				marginsType: 0,       // honour CSS @page margins
@@ -218,8 +172,6 @@ export class PdfExporter {
 				await this.app.vault.createFolder(folder);
 			}
 
-			// Write the raw Node Buffer directly via fs — bypasses the
-			// Buffer→ArrayBuffer conversion that was corrupting the file.
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			const vaultPath = (this.app.vault.adapter as any).basePath as string;
 			writeFileSync(join(vaultPath, outputPath), pdfBuffer);
@@ -231,12 +183,7 @@ export class PdfExporter {
 			new Notice("Export failed — check the developer console for details.", 0);
 			console.error("[Obsidian Typeset] Export failed:", err);
 		} finally {
-			// Always restore Obsidian's UI and remove injected elements
-			if (appContainer) appContainer.style.display = "";
-			document.getElementById("typeset-base-theme-style")?.remove();
-			document.getElementById("typeset-override-theme-style")?.remove();
-			document.getElementById("typeset-print-style")?.remove();
-			document.getElementById("typeset-print-root")?.remove();
+			win.close();
 		}
 	}
 }
