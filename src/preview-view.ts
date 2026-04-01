@@ -3,6 +3,7 @@
 
 import { Component, ItemView, MarkdownRenderer, MarkdownView, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import { VIEW_TYPE_CSS_EDITOR } from "./css-editor-view";
+import { ThemePickerModal } from "./theme-picker-modal";
 import { applyCalloutClasses, parseBlockClasses } from "./block-class-parser";
 import { PageLayout, PageOrientation, PageSize } from "./types";
 import type TypesetPlugin from "./main";
@@ -79,6 +80,13 @@ export class TypesetPreviewView extends ItemView {
 			"lucide-lock-open",
 			"Lock preview to this note",
 			() => this.toggleLock(),
+		);
+
+		// ── CSS editor button in pane header ──────────────────────────────────
+		this.addAction(
+			"lucide-palette",
+			"Open CSS editor",
+			() => void this.openCssEditor(),
 		);
 
 		// ── Export PDF button in pane header ──────────────────────────────────
@@ -470,17 +478,17 @@ export class TypesetPreviewView extends ItemView {
 		// Separator
 		this.infoBarEl.createSpan({ text: "·", attr: { style: "opacity:0.4;" } });
 
-		// Theme chip — click opens the CSS editor below this pane
+		// Theme chip — click opens the theme picker modal
 		const themeChip = this.infoBarEl.createSpan();
 		themeChip.style.cssText = chipCss;
-		themeChip.setAttribute("aria-label", "Open CSS editor");
+		themeChip.setAttribute("aria-label", "Change theme");
 		const themeIcon = themeChip.createSpan();
 		setIcon(themeIcon, "lucide-palette");
 		themeIcon.style.cssText = "display:flex;align-items:center;width:12px;height:12px;";
 		themeChip.createSpan({ text: themeName });
 		themeChip.addEventListener("mouseenter", () => themeChip.style.background = "var(--background-modifier-hover)");
 		themeChip.addEventListener("mouseleave", () => themeChip.style.background = "");
-		themeChip.addEventListener("click", () => void this.openCssEditor());
+		themeChip.addEventListener("click", () => this.openThemePicker());
 	}
 
 	private async exportPdf(): Promise<void> {
@@ -512,6 +520,22 @@ export class TypesetPreviewView extends ItemView {
 			btn.removeClass("is-loading");
 			btn.removeAttribute("aria-disabled");
 		}
+	}
+
+	private openThemePicker(): void {
+		const file = this.lockedFile ?? this.currentFile;
+		if (!file) return;
+		const modal = new ThemePickerModal(this.app, file);
+		// After the modal closes, processFrontMatter has updated the file.
+		// In locked mode the editor-change event won't fire (the locked file
+		// may not be the active editor), so force a re-render.
+		const origClose = modal.onClose.bind(modal);
+		modal.onClose = () => {
+			origClose();
+			this.cachedCssKey = ""; // invalidate CSS cache
+			void this.render(file);
+		};
+		modal.open();
 	}
 
 	private async openNoteInEditor(file: TFile): Promise<void> {

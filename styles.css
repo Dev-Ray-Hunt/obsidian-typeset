@@ -35,22 +35,31 @@
 /* --- CSS editor search bar --------------------------------- */
 
 .typeset-css-editor-search {
-	flex: 1;
-	min-width: 0;
-	max-width: 240px;
-	height: 24px;
-	padding: 0 8px;
-	font-size: 0.82em;
-	border-radius: 4px;
-	border: 1px solid var(--background-modifier-border);
+	flex: 0 0 auto;
+	width: 100%;
+	height: 28px;
+	padding: 4px 12px;
+	font-size: 12px;
+	border: none;
+	border-bottom: 1px solid var(--background-modifier-border);
+	border-radius: 0;
 	background: var(--background-primary);
 	color: var(--text-normal);
+	box-sizing: border-box;
 }
 
 .typeset-css-editor-search:focus {
 	outline: none;
-	border-color: var(--interactive-accent);
-	box-shadow: 0 0 0 2px var(--interactive-accent-hover);
+}
+
+/* --- CSS editor CM6 container ------------------------------ */
+
+.typeset-css-editor-cm .cm-editor {
+	height: 100%;
+}
+
+.typeset-css-editor-cm .cm-scroller {
+	overflow: auto;
 }
 
 /* Colour A — selector line highlight */

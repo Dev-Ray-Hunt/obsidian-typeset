@@ -23,14 +23,13 @@
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { ItemView, Notice, TFile, WorkspaceLeaf } from "obsidian";
+import { ItemView, MarkdownView, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, ViewUpdate } from "@codemirror/view";
 import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
 import { css as cssLanguage } from "@codemirror/lang-css";
 import type TypesetPlugin from "./main";
 import type { ThemeInfo } from "./types";
-import { saveSettings } from "./settings";
 import { TypesetPreviewView, VIEW_TYPE_PREVIEW } from "./preview-view";
 import { cssSearchField, setSearchQuery } from "./css-search-query";
 
@@ -71,6 +70,9 @@ export class CssEditorView extends ItemView {
 		const { contentEl } = this;
 		contentEl.empty();
 
+		// Use flex layout so search bar + info bar + editor stack correctly.
+		contentEl.style.cssText = "display:flex;flex-direction:column;height:100%;overflow:hidden;padding:0;";
+
 		// ── Load all themes ──────────────────────────────────────────────────
 		this.allThemes = await this.plugin.cssManager.getAvailableThemes();
 
@@ -84,18 +86,8 @@ export class CssEditorView extends ItemView {
 			this.allThemes[0] ??
 			null;
 
-		// ── Header ──────────────────────────────────────────────────────────
-		const header = contentEl.createDiv({ cls: "typeset-css-editor-header" });
-
-		this.dropdown = header.createEl("select", {
-			cls: "typeset-css-editor-dropdown",
-		});
-		this.buildDropdown();
-		this.dropdown.addEventListener("change", () => this.onDropdownChange());
-
-		// ── Search input ─────────────────────────────────────────────────────
-		// Always visible. Cmd-F / Ctrl-F (registered in main.ts) focuses it.
-		this.searchInput = header.createEl("input", {
+		// ── Search bar — full width across top ──────────────────────────────
+		this.searchInput = contentEl.createEl("input", {
 			type: "text",
 			cls: "typeset-css-editor-search",
 			attr: { placeholder: "Search selectors & properties…" },
@@ -107,7 +99,55 @@ export class CssEditorView extends ItemView {
 			});
 		});
 
-		this.headerStatus = header.createSpan({
+		// ── Info bar — file picker chip + apply button + status ──────────────
+		const infoBar = contentEl.createDiv({ cls: "typeset-css-editor-info-bar" });
+		infoBar.style.cssText =
+			"display:flex;align-items:center;gap:8px;padding:4px 12px;" +
+			"font-size:11px;color:var(--text-muted);border-bottom:1px solid var(--background-modifier-border);" +
+			"background:var(--background-secondary);flex-shrink:0;";
+
+		const chipCss =
+			"display:flex;align-items:center;gap:4px;cursor:pointer;" +
+			"padding:2px 6px;border-radius:4px;transition:background 0.1s;" +
+			"color:var(--text-muted);";
+
+		// File picker — styled <select> that looks like an info bar chip
+		const fileChipWrapper = infoBar.createSpan();
+		fileChipWrapper.style.cssText = chipCss;
+		const fileIcon = fileChipWrapper.createSpan();
+		setIcon(fileIcon, "lucide-file-code");
+		fileIcon.style.cssText = "display:flex;align-items:center;width:12px;height:12px;";
+		this.dropdown = fileChipWrapper.createEl("select", {
+			cls: "typeset-css-editor-dropdown",
+		});
+		this.dropdown.style.cssText =
+			"background:none;border:none;color:var(--text-muted);font-size:11px;" +
+			"cursor:pointer;outline:none;padding:0;font-family:inherit;" +
+			"-webkit-appearance:none;appearance:none;";
+		this.buildDropdown();
+		this.dropdown.addEventListener("change", () => this.onDropdownChange());
+		fileChipWrapper.addEventListener("mouseenter", () => fileChipWrapper.style.background = "var(--background-modifier-hover)");
+		fileChipWrapper.addEventListener("mouseleave", () => fileChipWrapper.style.background = "");
+
+		// Separator
+		infoBar.createSpan({ text: "·", attr: { style: "opacity:0.4;" } });
+
+		// "Apply to note" button — sets typeset-theme on the active note
+		const applyChip = infoBar.createSpan();
+		applyChip.style.cssText = chipCss;
+		applyChip.setAttribute("aria-label", "Set as theme for active note");
+		const applyIcon = applyChip.createSpan();
+		setIcon(applyIcon, "lucide-file-check");
+		applyIcon.style.cssText = "display:flex;align-items:center;width:12px;height:12px;";
+		applyChip.createSpan({ text: "Apply to note" });
+		applyChip.addEventListener("mouseenter", () => applyChip.style.background = "var(--background-modifier-hover)");
+		applyChip.addEventListener("mouseleave", () => applyChip.style.background = "");
+		applyChip.addEventListener("click", () => this.applyThemeToActiveNote());
+
+		// Spacer to push status to the right
+		infoBar.createDiv({ attr: { style: "flex:1;" } });
+
+		this.headerStatus = infoBar.createSpan({
 			cls: "typeset-css-editor-status",
 		});
 
@@ -118,6 +158,7 @@ export class CssEditorView extends ItemView {
 
 		// ── CM6 editor ──────────────────────────────────────────────────────
 		const editorEl = contentEl.createDiv({ cls: "typeset-css-editor-cm" });
+		editorEl.style.cssText = "flex:1;min-height:0;overflow:auto;";
 		const isBuiltIn = this.activeTheme?.isBuiltIn ?? false;
 
 		const state = EditorState.create({
@@ -191,10 +232,6 @@ export class CssEditorView extends ItemView {
 
 		this.activeTheme = theme;
 		if (this.dropdown) this.dropdown.value = theme.filename;
-
-		// Persist the new selection as the global active theme.
-		this.plugin.settings.activeTheme = theme.filename;
-		await saveSettings(this.plugin, this.plugin.settings);
 
 		const css = await this.plugin.cssManager.loadThemeCss(theme);
 		const isBuiltIn = theme.isBuiltIn;
@@ -306,5 +343,29 @@ export class CssEditorView extends ItemView {
 
 	private setStatus(text: string): void {
 		if (this.headerStatus) this.headerStatus.setText(text);
+	}
+
+	/** Sets the currently edited theme as typeset-theme on the active markdown note. */
+	private applyThemeToActiveNote(): void {
+		if (!this.activeTheme) return;
+
+		// Find the most recent markdown file — check active file first,
+		// then fall back to any open MarkdownView.
+		let file = this.app.workspace.getActiveFile();
+		if (!(file instanceof TFile) || file.extension !== "md") {
+			const mdLeaves = this.app.workspace.getLeavesOfType("markdown");
+			const mdView = mdLeaves[0]?.view as MarkdownView | undefined;
+			file = mdView?.file ?? null;
+		}
+		if (!file) {
+			new Notice("No active note to apply theme to.");
+			return;
+		}
+
+		const themeName = this.activeTheme.filename;
+		this.app.fileManager.processFrontMatter(file, (fm) => {
+			fm["typeset-theme"] = themeName;
+		});
+		new Notice(`Theme "${this.activeTheme.name}" applied to ${file.basename}`);
 	}
 }
