@@ -125,6 +125,8 @@ export class TypesetPreviewView extends ItemView {
 			}),
 		);
 
+
+
 		// Initial render.
 		// getActiveFile() returns null when the preview pane itself is the active
 		// leaf (which it is immediately after opening). Fall back to finding any
@@ -151,6 +153,14 @@ export class TypesetPreviewView extends ItemView {
 	}
 
 	// ── Public API ────────────────────────────────────────────────────────────
+
+	/** Force a full re-render (e.g. after settings change). */
+	refresh(): void {
+		const file = this.lockedFile ?? this.currentFile;
+		if (!file) return;
+		this.cachedCssKey = ""; // invalidate CSS cache
+		void this.render(file);
+	}
 
 	/**
 	 * Renders the given file through the full pipeline and updates the iframe.
@@ -266,6 +276,11 @@ export class TypesetPreviewView extends ItemView {
 		// CSS is inlined inside the iframe — no scoping needed, no cascade
 		// conflicts with Obsidian's own styles.
 		const iframe = this.iframeEl;
+
+		// Save scroll position before re-rendering so we can restore it.
+		const prevScroll = iframe.contentDocument
+			?.getElementById("typeset-scroll")?.scrollTop ?? 0;
+
 		iframe.onload = () => {
 			const doc = iframe.contentDocument;
 			if (!doc) return;
@@ -412,6 +427,9 @@ export class TypesetPreviewView extends ItemView {
 			const available = scrollEl.clientWidth - 64; // 32px padding each side
 			const scale     = Math.min(1, available / pageWidthPx);
 			pagesContainer.style.zoom = String(scale);
+
+			// Restore scroll position after re-render.
+			if (prevScroll > 0) scrollEl.scrollTop = prevScroll;
 		};
 
 		iframe.srcdoc = buildDocument(pageWidthPx, pageHeightPx, marginCss, this.getObsidianCss(), themeCss, renderedHtml);

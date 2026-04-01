@@ -1,6 +1,7 @@
 // settings.ts — Plugin settings and Settings Tab UI
 
 import { AbstractInputSuggest, App, Plugin, PluginSettingTab, Setting, TFolder } from "obsidian";
+import { TypesetPreviewView, VIEW_TYPE_PREVIEW } from "./preview-view";
 import type { ThemeInfo } from "./types";
 
 // FolderSuggest — attaches a vault folder autocomplete dropdown to any text input.
@@ -110,6 +111,12 @@ export async function saveSettings(
 	settings: TypesetSettings,
 ): Promise<void> {
 	await plugin.saveData(settings);
+	// Refresh any open preview panes so they pick up the new settings.
+	for (const leaf of plugin.app.workspace.getLeavesOfType(VIEW_TYPE_PREVIEW)) {
+		if (leaf.view instanceof TypesetPreviewView) {
+			leaf.view.refresh();
+		}
+	}
 }
 
 export class TypesetSettingTab extends PluginSettingTab {

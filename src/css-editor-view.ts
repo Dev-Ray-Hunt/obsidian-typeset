@@ -31,6 +31,7 @@ import { css as cssLanguage } from "@codemirror/lang-css";
 import type TypesetPlugin from "./main";
 import type { ThemeInfo } from "./types";
 import { saveSettings } from "./settings";
+import { TypesetPreviewView, VIEW_TYPE_PREVIEW } from "./preview-view";
 import { cssSearchField, setSearchQuery } from "./css-search-query";
 
 export const VIEW_TYPE_CSS_EDITOR = "typeset-css-editor";
@@ -270,6 +271,12 @@ export class CssEditorView extends ItemView {
 			this.pendingSave = false;
 			this.setStatus("Saved");
 			setTimeout(() => this.setStatus(""), 2000);
+			// Refresh any open preview panes so CSS changes appear live.
+			for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_PREVIEW)) {
+				if (leaf.view instanceof TypesetPreviewView) {
+					leaf.view.refresh();
+				}
+			}
 		} catch (err) {
 			console.error("[Typeset] Auto-save failed:", err);
 			new Notice(
