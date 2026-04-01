@@ -117,10 +117,12 @@ Example scopes: `pdf-engine`, `css-editor`, `parser`, `preview`, `settings`, `ui
 | Linting | ESLint + Prettier | Code quality |
 | CI | GitHub Actions | Lint + build on every PR |
 
-### 3.2 PDF Rendering Pipeline
+### 3.2 Rendering Pipeline (Shared)
+
+Both the print preview and PDF export use a **shared document builder** (`src/document-builder.ts`) that produces a complete, self-contained HTML document string. Each consumer loads this HTML into its own isolated document context.
 
 ```
-User triggers export
+User triggers export or opens preview
         │
         ▼
 [1] MarkdownRenderer
@@ -133,20 +135,36 @@ User triggers export
     markers, apply CSS classes to elements
         │
         ▼
-[3] CSS Injector
-    Inject user's active stylesheet
-    + @page rules into the HTML document
+[3] Document Builder (shared)
+    Assemble complete HTML document with
+    CSS layers: @layer obsidian, theme, layout
+    ├── Obsidian CSS (captured <style> elements)
+    ├── Theme CSS (active theme + @page rules)
+    └── Layout CSS (preview chrome or print rules)
         │
-        ▼
-[4] Electron printToPDF
-    Feed HTML to headless Chromium,
-    print with user's page settings
-        │
-        ▼
-[5] File Output
-    Save PDF to user-specified location
-    (default: same folder as source note)
+        ├──────────────────────┐
+        ▼                      ▼
+[4a] Preview                [4b] PDF Export
+     Load HTML into              Load HTML into hidden
+     iframe (srcdoc)             BrowserWindow
+     JS pagination               │
+     via smartBreak()             ▼
+                             [5] Electron printToPDF
+                                  Chromium print engine
+                                  handles pagination
+                                  │
+                                  ▼
+                             [6] File Output
+                                  Save PDF to user-specified
+                                  location (default: same
+                                  folder as source note)
 ```
+
+**Key architectural decisions:**
+- Both pipelines own their own `<body>` element — no selector rewriting needed
+- CSS cascade is controlled via `@layer` (Chromium 99+, Obsidian ships 114+) — eliminates `!important` warfare
+- PDF export uses an isolated `BrowserWindow` — no mutation of Obsidian's live DOM
+- Preview uses `smartBreak()` JS pagination as a visual approximation; PDF uses Chromium's native print engine for pixel-perfect output
 
 ### 3.3 Block Class Syntax Specification
 
@@ -185,15 +203,31 @@ This is a paragraph of flavour text.
 
 ### 3.4 CSS Architecture
 
-The plugin manages CSS stylesheets stored inside the Obsidian vault at:
+**Theme storage:** User stylesheets live in `<plugin>/themes/` (i.e. `app.vault.configDir + "/plugins/obsidian-typeset/themes/"`). Built-in themes ship in the `built-in/` directory of the plugin source.
 
-```
-<vault-root>/.typeset/
-    themes/
-        default.css        ← Ships with plugin (clean defaults)
-        dnd-homebrew.css   ← Ships with plugin (Homebrewery-inspired)
-    user/
-        custom.css         ← User-created stylesheets
+**CSS Cascade (via `@layer`):**
+
+The document builder assembles CSS into three deterministic layers using CSS `@layer`. Rules in later-declared layers always override earlier layers regardless of specificity — no `!important` needed.
+
+```css
+@layer obsidian, theme, layout;
+
+@layer obsidian {
+  /* Captured from Obsidian's <style> elements at render time.
+     Provides CSS custom properties, callout base styles,
+     code highlighting token colors, etc. */
+}
+
+@layer theme {
+  /* The active theme CSS (default.css, user theme, or per-note theme)
+     + generated @page rules from plugin settings.
+     Theme selectors use plain element/class selectors (body, p, h1, .callout, etc.) */
+}
+
+@layer layout {
+  /* Preview: page chrome, overflow control, smartBreak() positioning
+     PDF: @media print overrides, @page rules */
+}
 ```
 
 **CSS file features:**
@@ -243,8 +277,9 @@ obsidian-typeset/
 │   ├── main.ts                  ← Plugin entry point
 │   ├── settings.ts              ← Plugin settings model + defaults
 │   ├── settings-tab.ts          ← Settings UI (includes CSS editor)
-│   ├── pdf-exporter.ts          ← PDF generation logic
-│   ├── preview-view.ts          ← Split-pane print preview (ItemView)
+│   ├── document-builder.ts      ← Shared document assembly (HTML + CSS layers)
+│   ├── pdf-exporter.ts          ← PDF generation (BrowserWindow + printToPDF)
+│   ├── preview-view.ts          ← Split-pane print preview (ItemView + iframe)
 │   ├── block-class-parser.ts    ← {.classname} parser
 │   ├── css-manager.ts           ← Read/write/list CSS files in vault
 │   └── types.ts                 ← Shared TypeScript types
@@ -586,7 +621,7 @@ h1 and font-size         → h1 selector lines + font-size property lines inside
 - A "Toggle Print Preview" command opens a new leaf/pane in Obsidian.
 - The preview renders the current note with the active CSS theme applied.
 - The preview updates automatically when the note is edited (debounced, 800ms).
-- The preview uses the same rendering pipeline as PDF export (same HTML + CSS), ensuring WYSIWYG accuracy.
+- The preview uses the same shared document builder as PDF export (`document-builder.ts`), ensuring the HTML and CSS layers are identical. The only difference is pagination: the preview uses `smartBreak()` JS approximation while the PDF uses Chromium's native print engine.
 - The preview includes a visual representation of page boundaries (dashed border or shadow showing page edges).
 - A "Export PDF" button is visible in the preview pane header for quick access.
 - The preview pane can be closed/toggled without affecting the note.
@@ -962,6 +997,11 @@ Export a note directly to a Google Docs document, enabling real-time collaborati
 | #43 | Page boundary visualization with accurate flow | Add CSS to preview showing page break positions. Preview must simulate correct page flow: images, tables, and `break-inside: avoid` blocks position identically to the final PDF |
 | #44 | "Export PDF" button in preview header | Quick-access export button visible in the preview pane's action bar |
 | #45 | Manual test: preview accuracy | Verify preview matches actual PDF output for `dnd-test.md`, including image wrapping and page-break positions |
+| #68 | Theme picker in preview + CSS editor UI overhaul | Theme name chip in preview header opens picker; palette icon opens CSS editor; CSS editor file picker only changes editing target |
+| #74 | Phase A: Extract shared document builder | Create `document-builder.ts` with shared rendering logic; refactor preview and PDF to use it |
+| #75 | Phase B: Isolated PDF rendering in BrowserWindow | Move PDF export to hidden BrowserWindow; build bare pipeline first (no themes), validate parity, then add themes |
+| #76 | Phase C: CSS @layer for cascade control | Wrap CSS output in `@layer obsidian, theme, layout` blocks; eliminate `!important` declarations |
+| #77 | Polish: Preview/PDF visual fine-tuning | Address remaining minor visual differences after unified pipeline is in place |
 
 ---
 

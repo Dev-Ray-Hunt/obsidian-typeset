@@ -160,3 +160,28 @@ User stylesheets live in `<plugin>/themes/` (i.e. `app.vault.configDir + "/plugi
 A vault-level `.typeset/` directory was attempted in Issue #35 but caused the frontmatter theme autocomplete (`TypesetThemeSuggest`) and the theme picker modal (`ThemePickerModal`) to stop discovering user themes. Both of those classes construct their own `CssManager` instance, so any change to `themesDir` affects them directly.
 
 **Do not change the theme storage location without also verifying that `TypesetThemeSuggest` and `ThemePickerModal` still discover themes correctly.**
+
+### Unified Rendering Pipeline (Phases A/B/C) — Approved 2026-04-01
+
+The preview and PDF pipelines were built independently and diverged structurally. After extensive debugging (#72, #73) and a 4-agent architecture review (`docs/architecture-review/`), Brandon approved a 3-phase plan to unify them:
+
+**Phase A (#74): Extract shared document builder** — Create `src/document-builder.ts` with `mergeLayout()`, `renderMarkdownToHtml()`, `resolveThemeCss()`, and `buildDocumentHtml()`. Refactor both `preview-view.ts` and `pdf-exporter.ts` to consume the shared module. Low risk, high value.
+
+**Phase B (#75): Isolated PDF rendering in BrowserWindow** — Move PDF export from Obsidian's live DOM into a hidden `BrowserWindow`. **Critical: Build bare pipeline first (no themes, only Obsidian CSS + page margins), validate parity, then add themes.** This eliminates the `body` → `#typeset-print-root` regex rewrite, the `appContainer.style.display = "none"` mutation, and all 13 `!important` declarations in the PDF path.
+
+**Phase C (#76): CSS @layer** — Wrap CSS in `@layer obsidian, theme, layout` blocks for deterministic cascade ordering. Eliminates remaining `!important` declarations in the preview path.
+
+**#77: Polish** — Final visual fine-tuning after the pipeline is unified.
+
+**Order: A → B (B1 bare, then B2 themed) → C → Polish**
+
+The full architecture review is in `docs/architecture-review/synthesis-and-recommendation.md`. The detailed implementation plan (with test checklists) is in the GitHub issues above.
+
+### Known uncommitted changes from #72/#73 work
+
+There are uncommitted changes on `dev` branch to `built-in/default.css`, `src/preview-view.ts`, and `src/pdf-exporter.ts` from the CSS parity debugging session. These include:
+- Added `markdown-rendered` class to preview iframe body and PDF `#typeset-print-root` div
+- Added Layer 3 CSS baseline rules (table border reset, callout icon/fold hiding)
+- Removed font-family overrides from `default.css` headings (they now inherit from body)
+
+These changes should be committed before starting Phase A, or incorporated into the Phase A refactor.
