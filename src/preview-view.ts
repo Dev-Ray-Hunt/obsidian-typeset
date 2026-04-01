@@ -1,7 +1,7 @@
 // preview-view.ts — Split-pane print preview Obsidian View
 // M4 rework: iframe + srcdoc with live updates (Issues #39, #40, #42, #43)
 
-import { Component, ItemView, MarkdownRenderer, MarkdownView, TFile, WorkspaceLeaf, setIcon } from "obsidian";
+import { Component, ItemView, MarkdownRenderer, MarkdownView, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import { VIEW_TYPE_CSS_EDITOR } from "./css-editor-view";
 import { applyCalloutClasses, parseBlockClasses } from "./block-class-parser";
 import { PageLayout, PageOrientation, PageSize } from "./types";
@@ -31,6 +31,7 @@ export class TypesetPreviewView extends ItemView {
 	private currentFile: TFile | null = null;
 	private lockedFile: TFile | null = null;
 	private lockButtonEl: HTMLElement | null = null;
+	private exportButtonEl: HTMLElement | null = null;
 	private infoBarEl: HTMLElement | null = null;
 	private currentThemeName = "";
 	private iframeEl: HTMLIFrameElement | null = null;
@@ -78,6 +79,13 @@ export class TypesetPreviewView extends ItemView {
 			"lucide-lock-open",
 			"Lock preview to this note",
 			() => this.toggleLock(),
+		);
+
+		// ── Export PDF button in pane header ──────────────────────────────────
+		this.exportButtonEl = this.addAction(
+			"lucide-download",
+			"Export PDF",
+			() => void this.exportPdf(),
 		);
 
 		// ── Info bar — note name + theme name ────────────────────────────────────
@@ -149,6 +157,7 @@ export class TypesetPreviewView extends ItemView {
 		this.currentFile = null;
 		this.lockedFile = null;
 		this.lockButtonEl = null;
+		this.exportButtonEl = null;
 		this.contentEl.empty();
 	}
 
@@ -472,6 +481,37 @@ export class TypesetPreviewView extends ItemView {
 		themeChip.addEventListener("mouseenter", () => themeChip.style.background = "var(--background-modifier-hover)");
 		themeChip.addEventListener("mouseleave", () => themeChip.style.background = "");
 		themeChip.addEventListener("click", () => void this.openCssEditor());
+	}
+
+	private async exportPdf(): Promise<void> {
+		const file = this.lockedFile ?? this.currentFile;
+		if (!file || !this.exportButtonEl) return;
+
+		// Show loading state.
+		const btn = this.exportButtonEl;
+		setIcon(btn, "lucide-loader-2");
+		btn.addClass("is-loading");
+		btn.setAttribute("aria-disabled", "true");
+
+		try {
+			const { PdfExporter } = await import("./pdf-exporter");
+			const exporter = new PdfExporter(this.app, this.plugin.settings);
+			await exporter.export(file);
+
+			// Brief "saved" feedback.
+			setIcon(btn, "lucide-check");
+			setTimeout(() => {
+				setIcon(btn, "lucide-download");
+				btn.removeClass("is-loading");
+				btn.removeAttribute("aria-disabled");
+			}, 1500);
+		} catch (err) {
+			console.error("[Typeset] Export failed:", err);
+			new Notice(`Typeset: export failed — ${(err as Error).message}`);
+			setIcon(btn, "lucide-download");
+			btn.removeClass("is-loading");
+			btn.removeAttribute("aria-disabled");
+		}
 	}
 
 	private async openNoteInEditor(file: TFile): Promise<void> {
