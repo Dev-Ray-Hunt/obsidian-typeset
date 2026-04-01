@@ -1,9 +1,9 @@
 // pdf-exporter.ts — Core PDF export pipeline
 
-import { App, Component, MarkdownRenderer, Notice, Platform, TFile } from "obsidian";
+import { App, Notice, Platform, TFile } from "obsidian";
 import { PageOrientation, PageSize, TypesetSettings } from "./types";
-import { applyCalloutClasses, parseBlockClasses } from "./block-class-parser";
 import { CssManager } from "./css-manager";
+import { mergeLayout, renderMarkdownToHtml, resolveThemes } from "./document-builder";
 import { writeFileSync } from "fs";
 import { join } from "path";
 
@@ -46,26 +46,10 @@ export class PdfExporter {
 		}
 
 		// ------------------------------------------------------------------
-		// Step 1: Render Markdown → HTML via Obsidian's built-in renderer
+		// Step 1: Render Markdown → HTML via shared pipeline
 		// ------------------------------------------------------------------
 		const markdown = await this.app.vault.read(file);
-		const container = document.createElement("div");
-		const component = new Component();
-		component.load();
-
-		await MarkdownRenderer.render(
-			this.app,
-			markdown,
-			container,
-			file.path,
-			component,
-		);
-
-		component.unload();
-		const rawHtml = container.innerHTML;
-
-		// Run the parser pipeline: callout classes first, then block annotations
-		const bodyHtml = parseBlockClasses(applyCalloutClasses(rawHtml));
+		const bodyHtml = await renderMarkdownToHtml(this.app, markdown, file.path);
 		console.log("[Typeset] Rendered HTML:", bodyHtml);
 
 		// ------------------------------------------------------------------
@@ -80,16 +64,9 @@ export class PdfExporter {
 		//   settings.defaultLayout → default theme layoutOverrides
 		//                          → assigned theme layoutOverrides
 		// ------------------------------------------------------------------
-		const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
-		const assignedThemeName = frontmatter?.["typeset-theme"] as string | undefined;
-		const defaultThemeName  = this.settings.activeTheme;
-
-		const themes = await this.cssManager.getAvailableThemes();
-		const defaultTheme  = themes.find(t => t.filename === defaultThemeName) ?? themes[0];
-		// Only treat as an override when it's a different theme from the default.
-		const assignedTheme = assignedThemeName && assignedThemeName !== defaultThemeName
-			? (themes.find(t => t.filename === assignedThemeName) ?? null)
-			: null;
+		const { defaultTheme, assignedTheme } = await resolveThemes(
+			this.app, file, this.settings, this.cssManager,
+		);
 
 		// Merge layout: settings → default theme hints → assigned theme hints.
 		const effectiveLayout = mergeLayout(
@@ -186,6 +163,7 @@ export class PdfExporter {
 
 		const printRoot = document.createElement("div");
 		printRoot.id = "typeset-print-root";
+		printRoot.classList.add("markdown-rendered");
 		printRoot.innerHTML = bodyHtml;
 
 		// Cascade order: base theme → settings → assigned theme override
@@ -263,27 +241,3 @@ export class PdfExporter {
 	}
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-import type { PageLayout } from "./types";
-
-/**
- * Merges a base PageLayout with zero or more partial override layers.
- * Layers are applied left-to-right; later layers win.
- * `margins` is merged explicitly (it's a nested object).
- */
-function mergeLayout(
-	base: PageLayout,
-	...overrides: (Partial<PageLayout> | undefined)[]
-): PageLayout {
-	let result = { ...base };
-	for (const override of overrides) {
-		if (!override) continue;
-		result = {
-			...result,
-			...override,
-			margins: override.margins ?? result.margins,
-		};
-	}
-	return result;
-}

@@ -6,6 +6,7 @@ import { VIEW_TYPE_CSS_EDITOR } from "./css-editor-view";
 import { ThemePickerModal } from "./theme-picker-modal";
 import { applyCalloutClasses, parseBlockClasses } from "./block-class-parser";
 import { PageLayout, PageOrientation, PageSize } from "./types";
+import { mergeLayout, resolveThemes, toPx } from "./document-builder";
 import type TypesetPlugin from "./main";
 
 export const VIEW_TYPE_PREVIEW = "typeset-preview";
@@ -191,10 +192,6 @@ export class TypesetPreviewView extends ItemView {
 		const markdown = await this.app.vault.cachedRead(file);
 
 		// ── Step 2: Resolve themes and effective layout ───────────────────────
-		const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
-		const assignedThemeName = frontmatter?.["typeset-theme"] as string | undefined;
-		const defaultThemeName = this.plugin.settings.activeTheme;
-
 		const themes = await this.plugin.cssManager.getAvailableThemes();
 		if (themes.length === 0) {
 			console.error("[Typeset] render(): no themes found — check built-in/ folder in plugin directory");
@@ -202,11 +199,9 @@ export class TypesetPreviewView extends ItemView {
 			return;
 		}
 
-		const defaultTheme = themes.find(t => t.filename === defaultThemeName) ?? themes[0];
-		const assignedTheme =
-			assignedThemeName && assignedThemeName !== defaultThemeName
-				? (themes.find(t => t.filename === assignedThemeName) ?? null)
-				: null;
+		const { defaultTheme, assignedTheme } = await resolveThemes(
+			this.app, file, this.plugin.settings, this.plugin.cssManager,
+		);
 
 		// Update the info bar now that we have the file and theme names.
 		const displayTheme = assignedTheme ?? defaultTheme;
@@ -421,7 +416,7 @@ export class TypesetPreviewView extends ItemView {
 				clip.style.cssText = `height:${contentHeight}px;overflow:hidden;position:relative;margin-top:${clipMargin}px;`;
 
 				const content = doc.createElement("div");
-				content.className = "typeset-page-content";
+				content.className = "typeset-page-content markdown-rendered";
 				if (i > 0) {
 					// Remove top padding — the clip's margin-top provides the space.
 					// Compensate the top offset: without padding, content shifts up
@@ -713,9 +708,21 @@ html, body {
 	z-index: 10;
 }
 
-/* ── Callout fixes — match PDF output ──────────────────────────────────── */
+/* ── Content element baseline — match PDF output ──────────────────────── */
+/* Only override things the theme CSS doesn't cover. Low specificity so
+   theme rules always win. */
+
+/* Tables — reset browser default borders, keep theme's own styling */
+table { border-collapse: collapse; }
+th, td { border: none; }
+td { border-bottom: 1px solid var(--background-modifier-border, #ddd); }
+
+/* Callouts — hide icon and fold, color the title */
 .callout-icon { display: none !important; }
 .callout-title { color: rgb(var(--callout-color, 68, 138, 255)) !important; }
+.callout-fold { display: none !important; }
+.callout-content > p:first-child { margin-top: 0; }
+.callout-content > p:last-child { margin-bottom: 0; }
 
 /* ── Page content / measure div ─────────────────────────────────────────── */
 .typeset-page-content {
@@ -727,42 +734,12 @@ html, body {
 }
 </style>
 </head>
-<body>
+<body class="markdown-rendered">
 <div id="typeset-scroll">
   <div id="typeset-pages"></div>
-  <div id="typeset-measure" class="typeset-page-content" style="top:0;left:-9999px;visibility:hidden;">${bodyHtml}</div>
+  <div id="typeset-measure" class="typeset-page-content markdown-rendered" style="top:0;left:-9999px;visibility:hidden;">${bodyHtml}</div>
 </div>
 </body>
 </html>`;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Converts a value in the given unit to CSS pixels at 96dpi. */
-function toPx(value: number, unit: "mm" | "in" | "px"): number {
-	if (unit === "mm") return Math.round((value * 96) / 25.4);
-	if (unit === "in") return Math.round(value * 96);
-	return Math.round(value);
-}
-
-/**
- * Merges a base PageLayout with zero or more partial override layers.
- * Mirrors the private mergeLayout in pdf-exporter.ts.
- */
-function mergeLayout(
-	base: PageLayout,
-	...overrides: (Partial<PageLayout> | undefined)[]
-): PageLayout {
-	let result = { ...base };
-	for (const override of overrides) {
-		if (!override) continue;
-		result = {
-			...result,
-			...override,
-			margins: override.margins ?? result.margins,
-		};
-	}
-	return result;
-}
