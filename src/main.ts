@@ -17,6 +17,7 @@ export default class TypesetPlugin extends Plugin {
 	cssManager!: CssManager;
 	
 
+
 	async onload(): Promise<void> {
 		this.settings = await loadSettings(this);
 		this.cssManager = new CssManager(this.app);

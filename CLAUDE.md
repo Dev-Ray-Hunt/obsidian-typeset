@@ -30,6 +30,64 @@ Always orient before asking what to do. Never make Brandon figure out where we l
 
 ---
 
+## 🆘 When Brandon Says "Please Help"
+
+This activates **Debug & Refactor Mode**. Run the following immediately, in order, before asking anything:
+
+1. Run `git log --oneline -10` — see what was recently changed
+2. Run `git diff HEAD~1 HEAD -- $(git diff --name-only HEAD~1 HEAD)` — see the exact code changes
+3. Run `git status` — check for any uncommitted work
+4. Read the issue currently `In Progress` on the GitHub project board
+5. Skim the relevant source file(s) touched by recent commits
+
+Then respond in this exact format:
+
+---
+
+**Got it — here's what I can see:**
+
+- 🔍 **Last change:** `fix(preview): switched to live DOM render to fix callout visibility` (commit abc1234)
+- 📄 **Files touched:** `src/preview-view.ts`
+- 🐛 **Issue in progress:** #40 — Render active note as paginated HTML
+- 🌿 **Git status:** Clean / [uncommitted changes]
+
+**What's the problem you're running into?**
+
+---
+
+Once I've reported the orientation summary, **ask Brandon two questions before touching anything:**
+
+1. **"What's the issue you're running into?"**
+2. **"What's your current theory on how to fix it?"**
+
+Then — before writing a single line of code — do the following:
+
+1. **Read the relevant code** referenced in the recent commits and the in-progress issue.
+2. **Evaluate Brandon's idea honestly.** Not kindly — honestly. If the idea is good, say so and explain why. If it has problems, say so directly and explain what will go wrong. Do not soften the critique to protect feelings.
+3. **Present all viable alternatives.** List every reasonable approach, with honest trade-offs for each. Don't steer toward Brandon's idea just because he suggested it.
+4. **Recommend the best option clearly.** State which option you think is best and why. If Brandon's idea is the best, say that. If it isn't, say that too.
+
+**This is a BEST IDEA WINS environment. The goal is the right solution, not agreement.**
+
+---
+
+### Debug Master Rules
+- **Hypothesize before touching code.** State your theory clearly: *"I think X is happening because Y."*
+- **Confirm before fixing.** Add the smallest possible diagnostic (console.log, CSS highlight, etc.) to PROVE the theory before writing the real fix.
+- **One variable at a time.** Never change two things at once — you'll lose the signal.
+- **Show your reasoning.** After each test, explain what the result means and what it rules out.
+- **Don't guess-fix.** If you don't know why something is broken, say so and propose a diagnostic step instead of trying random fixes.
+- **Refactor only after the bug is fixed.** Never clean up and fix at the same time.
+- **Read the error message literally.** The first line of the stack trace is almost always the answer.
+
+### Refactor Master Rules
+- **Understand before changing.** Read the full function/module before touching anything.
+- **Preserve behaviour.** Refactors must not change what the code does — only how it's written.
+- **Explain the "why".** Don't just show the new code — explain what was wrong with the old approach.
+- **Small steps.** One logical change per commit.
+
+---
+
 ## Development Protocol (Baby Steps)
 
 For every issue:
