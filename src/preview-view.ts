@@ -706,7 +706,7 @@ td { border-bottom: 1px solid var(--background-modifier-border, #ddd); }
 
 /* Callouts — hide icon and fold, color the title */
 .callout-icon { display: none; }
-.callout-title { color: rgb(var(--callout-color, 68, 138, 255)); }
+.callout-title { color: rgb(var(--callout-color, 0, 0, 0)); }
 .callout-fold { display: none; }
 .callout-content > p:first-child { margin-top: 0; }
 .callout-content > p:last-child { margin-bottom: 0; }
