@@ -284,135 +284,199 @@ export class TypesetPreviewView extends ItemView {
 			const scrollEl     = doc.getElementById("typeset-scroll");
 			if (!measure || !pagesContainer || !scrollEl) return;
 
-			const totalHeight = measure.scrollHeight;
-			const contentHtml = measure.innerHTML;
-			const measureTop  = measure.getBoundingClientRect().top;
+			// ── Detect theme columns ─────────────────────────────────────────
+			const colCountMatch = themeCss.match(/column-count\s*:\s*(\d+)/);
+			const colGapMatch   = themeCss.match(/column-gap\s*:\s*([\d.]+\w+)/);
+			const themeColCount = colCountMatch ? parseInt(colCountMatch[1], 10) : 1;
+			const themeColGap   = colGapMatch   ? colGapMatch[1] : "20pt";
+			const isColumned    = themeColCount >= 2;
 
-			// ── Block element map ─────────────────────────────────────────────
-			// Collect all significant block elements with their measured positions.
-			// We check each element for two CSS hints:
-			//   avoidBreakInside — .callout, table, pre: never split mid-element
-			//   avoidBreakAfter  — h1–h6: keep heading glued to the content below it
-			type Block = { top: number; bottom: number; avoidBreakInside: boolean; avoidBreakAfter: boolean };
-			const blocks: Block[] = Array.from(
-				measure.querySelectorAll("p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, .callout, hr, img"),
-			).map(el => {
-				const r = el.getBoundingClientRect();
-				const isHeading  = /^H[1-6]$/.test(el.tagName);
-				const isAvoidInside = el.classList.contains("callout")
-					|| el.tagName === "TABLE"
-					|| el.tagName === "PRE"
-					|| el.tagName === "BLOCKQUOTE";
-				return {
-					top:              r.top    - measureTop,
-					bottom:           r.bottom - measureTop,
-					avoidBreakInside: isAvoidInside,
-					avoidBreakAfter:  isHeading,
+			if (isColumned) {
+				// ── Columned pagination: overflow detection ───────────────────
+				// The browser's native column engine handles column layout.
+				// We create an off-screen measurement container matching one
+				// page's content area (with balanced columns, no height
+				// constraint) and append elements one by one.  When the
+				// balanced column height exceeds the page's content area,
+				// we know the page is full and start a new one.
+				const elements = Array.from(measure.children) as HTMLElement[];
+				const pages: HTMLElement[][] = [];
+				let currentPage: HTMLElement[] = [];
+
+				const createMC = (): HTMLDivElement => {
+					const mc = doc.createElement("div");
+					mc.className = "markdown-rendered";
+					mc.style.cssText =
+						`position:absolute;left:-9999px;visibility:hidden;` +
+						`width:${contentAreaWidthPx}px;` +
+						`column-count:${themeColCount};column-gap:${themeColGap};` +
+						`column-fill:balance;`;
+					scrollEl.appendChild(mc);
+					return mc;
 				};
-			}).sort((a, b) => a.top - b.top);
 
-			// ── Smart break finder ────────────────────────────────────────────
-			// Given the previous page's break position and the raw target
-			// (prevBreak + pageHeightPx), return a clean break position that:
-			//   • doesn't split any avoidBreakInside element (callout, table, pre)
-			//   • doesn't break immediately after a heading — keeps heading + first
-			//     content together (avoidBreakAfter)
-			//
-			// Key invariant: the "revert to before-heading" logic fires ONLY when
-			// the block that follows the heading STRADDLES the boundary.  When the
-			// heading and the block both fit, bestBreak advances normally.
-			function smartBreak(prevBreak: number, target: number): number {
-				let bestBreak        = prevBreak; // best clean break found so far
-				let beforeHeadingPos = prevBreak; // bestBreak value just before a heading
-				let pendingHeading   = false;     // true while last seen block was a heading
+				let mc = createMC();
 
-				for (const b of blocks) {
-					if (b.top <= prevBreak) continue; // before our window
-					if (b.top >= target)   break;      // past the boundary
+				for (let idx = 0; idx < elements.length; idx++) {
+					const el = elements[idx];
+					const clone = el.cloneNode(true) as HTMLElement;
+					mc.appendChild(clone);
 
-					if (b.bottom <= target) {
-						// ── Block fits entirely on this page ─────────────────────
-						if (b.avoidBreakAfter) {
-							// Heading fits — remember the break point just before it so
-							// we can retreat here if the *next* block doesn't fit.
-							if (!pendingHeading) beforeHeadingPos = bestBreak;
-							pendingHeading = true;
-							// Don't advance bestBreak yet; wait to see if next content fits.
+					if (mc.scrollHeight > contentAreaHeightPx) {
+						// This element pushed us past the page boundary.
+						mc.removeChild(clone);
+
+						// Heading sticking: if the last element on the current
+						// page is a heading, pull it to the next page so it
+						// stays with the content that follows it.
+						if (
+							currentPage.length > 0 &&
+							/^H[1-6]$/.test(currentPage[currentPage.length - 1].tagName)
+						) {
+							const heading = currentPage.pop()!;
+							if (mc.lastChild) mc.removeChild(mc.lastChild);
+							pages.push([...currentPage]);
+							mc.remove();
+							mc = createMC();
+							currentPage = [heading, el];
+							mc.appendChild(heading.cloneNode(true));
+							mc.appendChild(el.cloneNode(true));
 						} else {
-							// Non-heading block fits.  Always advance bestBreak.
-							// (If a heading preceded it and BOTH fit, heading stays on this
-							// page with its content — no revert needed.)
-							bestBreak     = b.bottom;
-							pendingHeading = false;
+							pages.push([...currentPage]);
+							mc.remove();
+							mc = createMC();
+							currentPage = [el];
+							mc.appendChild(el.cloneNode(true));
 						}
 					} else {
-						// ── Block straddles the boundary ─────────────────────────
-						if (pendingHeading) {
-							// Content after the heading doesn't fit — retreat to just
-							// before the heading so it travels with its content to p.N+1.
-							bestBreak = beforeHeadingPos;
-						} else {
-							// No pending heading — break just before this block.
-							bestBreak = b.top > prevBreak ? b.top : prevBreak;
-						}
-						break;
+						currentPage.push(el);
 					}
 				}
 
-				// Fall back to the raw boundary if no clean break was found.
-				return bestBreak > prevBreak ? bestBreak : target;
-			}
+				// Last page
+				if (currentPage.length > 0) pages.push(currentPage);
+				mc.remove();
 
-			// ── Calculate page start offsets ──────────────────────────────────
-			const pageStarts: number[] = [0];
-			let prev = 0;
-			while (prev < totalHeight) {
-				const target = prev + contentAreaHeightPx;
-				if (target >= totalHeight) break;
-				const next = smartBreak(prev, target);
-				pageStarts.push(next);
-				prev = next;
-			}
+				// ── Build columned page boxes ────────────────────────────────
+				for (let i = 0; i < pages.length; i++) {
+					const pageBox = doc.createElement("div");
+					pageBox.className = "typeset-page-box";
 
-			// ── Build page boxes ──────────────────────────────────────────────
-			for (let i = 0; i < pageStarts.length; i++) {
-				const pageBox = doc.createElement("div");
-				pageBox.className = "typeset-page-box";
+					const label = doc.createElement("div");
+					label.className = "typeset-page-label";
+					label.textContent = `${i + 1}`;
+					pageBox.appendChild(label);
 
-				const label = doc.createElement("div");
-				label.className = "typeset-page-label";
-				label.textContent = `${i + 1}`;
-				pageBox.appendChild(label);
+					const content = doc.createElement("div");
+					content.className = "typeset-page-content markdown-rendered";
+					content.style.cssText =
+						`position:static;` +
+						`column-count:${themeColCount};column-gap:${themeColGap};column-fill:auto;` +
+						`padding:${marginCss};box-sizing:border-box;` +
+						`width:${pageWidthPx}px;height:${pageHeightPx}px;overflow:hidden;`;
 
-				// Calculate the exact height of this page's content slice.
-				// Without this clip, smart breaks cause content to repeat:
-				// page N still shows up to pageHeightPx even if pageStarts[N+1]
-				// was moved back, so the overlapping region shows on both pages.
-				const nextStart      = i + 1 < pageStarts.length ? pageStarts[i + 1] : totalHeight;
-				const contentHeight  = nextStart - pageStarts[i];
+					for (const el of pages[i]) {
+						content.appendChild(el.cloneNode(true));
+					}
 
-				const clip = doc.createElement("div");
-				// Pages 2+ need margin-top to recreate the top margin space
-				// (page 1 gets it from the content div's CSS padding-top).
-				const clipMargin = i === 0 ? 0 : topMarginPx;
-				clip.style.cssText = `height:${contentHeight}px;overflow:hidden;position:relative;margin-top:${clipMargin}px;`;
-
-				const content = doc.createElement("div");
-				content.className = "typeset-page-content markdown-rendered";
-				if (i > 0) {
-					// Remove top padding — the clip's margin-top provides the space.
-					// Compensate the top offset: without padding, content shifts up
-					// by topMarginPx, so add it back to keep alignment correct.
-					content.style.top = `${-pageStarts[i] + topMarginPx}px`;
-					content.style.setProperty("padding-top", "0px", "important");
-				} else {
-					content.style.top = `${-pageStarts[i]}px`;
+					pageBox.appendChild(content);
+					pagesContainer.appendChild(pageBox);
 				}
-				content.innerHTML = contentHtml;
+			} else {
+				// ── Non-columned pagination: clip-based approach ──────────────
+				const totalHeight = measure.scrollHeight;
+				const measureTop  = measure.getBoundingClientRect().top;
 
-				clip.appendChild(content);
-				pageBox.appendChild(clip);
-				pagesContainer.appendChild(pageBox);
+				type Block = { top: number; bottom: number; avoidBreakInside: boolean; avoidBreakAfter: boolean };
+				const blocks: Block[] = Array.from(
+					measure.querySelectorAll("p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, .callout, hr, img"),
+				).map(el => {
+					const r = el.getBoundingClientRect();
+					const isHeading  = /^H[1-6]$/.test(el.tagName);
+					const isAvoidInside = el.classList.contains("callout")
+						|| el.tagName === "TABLE"
+						|| el.tagName === "PRE"
+						|| el.tagName === "BLOCKQUOTE";
+					return {
+						top:              r.top    - measureTop,
+						bottom:           r.bottom - measureTop,
+						avoidBreakInside: isAvoidInside,
+						avoidBreakAfter:  isHeading,
+					};
+				}).sort((a, b) => a.top - b.top);
+
+				function smartBreak(prevBreak: number, target: number): number {
+					let bestBreak        = prevBreak;
+					let beforeHeadingPos = prevBreak;
+					let pendingHeading   = false;
+
+					for (const b of blocks) {
+						if (b.top <= prevBreak) continue;
+						if (b.top >= target)   break;
+
+						if (b.bottom <= target) {
+							if (b.avoidBreakAfter) {
+								if (!pendingHeading) beforeHeadingPos = bestBreak;
+								pendingHeading = true;
+							} else {
+								bestBreak     = b.bottom;
+								pendingHeading = false;
+							}
+						} else {
+							if (pendingHeading) {
+								bestBreak = beforeHeadingPos;
+							} else {
+								bestBreak = b.top > prevBreak ? b.top : prevBreak;
+							}
+							break;
+						}
+					}
+
+					return bestBreak > prevBreak ? bestBreak : target;
+				}
+
+				const pageStarts: number[] = [0];
+				let prev = 0;
+				while (prev < totalHeight) {
+					const target = prev + contentAreaHeightPx;
+					if (target >= totalHeight) break;
+					const next = smartBreak(prev, target);
+					pageStarts.push(next);
+					prev = next;
+				}
+
+				const contentHtml = measure.innerHTML;
+
+				for (let i = 0; i < pageStarts.length; i++) {
+					const pageBox = doc.createElement("div");
+					pageBox.className = "typeset-page-box";
+
+					const label = doc.createElement("div");
+					label.className = "typeset-page-label";
+					label.textContent = `${i + 1}`;
+					pageBox.appendChild(label);
+
+					const nextStart      = i + 1 < pageStarts.length ? pageStarts[i + 1] : totalHeight;
+					const contentHeight  = nextStart - pageStarts[i];
+
+					const clip = doc.createElement("div");
+					const clipMargin = i === 0 ? 0 : topMarginPx;
+					clip.style.cssText = `height:${contentHeight}px;overflow:hidden;position:relative;margin-top:${clipMargin}px;`;
+
+					const content = doc.createElement("div");
+					content.className = "typeset-page-content markdown-rendered";
+					if (i > 0) {
+						content.style.top = `${-pageStarts[i] + topMarginPx}px`;
+						content.style.setProperty("padding-top", "0px", "important");
+					} else {
+						content.style.top = `${-pageStarts[i]}px`;
+					}
+					content.innerHTML = contentHtml;
+
+					clip.appendChild(content);
+					pageBox.appendChild(clip);
+					pagesContainer.appendChild(pageBox);
+				}
 			}
 
 			measure.remove();
@@ -650,6 +714,9 @@ html, body {
 	height:   auto;
 	overflow: auto;
 	background: #d0d0d0;
+	/* Reset theme columns — preview uses clip-based pagination which is
+	   incompatible with CSS column-count.  Columns work in PDF natively. */
+	column-count: auto;
 }
 
 /* ── Grey surround ──────────────────────────────────────────────────────── */
