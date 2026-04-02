@@ -192,19 +192,27 @@ export function buildPdfHtml(options: PdfHtmlOptions): string {
 <head>
 <meta charset="utf-8">
 <style>
+/* Declare layer order — later layers always win regardless of specificity */
+@layer obsidian, theme, layout;
+
 /* ══════════════════════════════════════════════════════════════════════════
    LAYER 1 — Obsidian's base CSS
    ══════════════════════════════════════════════════════════════════════════ */
+@layer obsidian {
 ${obsidianCss}
+}
 
 /* ══════════════════════════════════════════════════════════════════════════
    LAYER 2 — Typeset theme CSS
    ══════════════════════════════════════════════════════════════════════════ */
+@layer theme {
 ${themeCss}
+}
 
 /* ══════════════════════════════════════════════════════════════════════════
    LAYER 3 — PDF page geometry and resets
    ══════════════════════════════════════════════════════════════════════════ */
+@layer layout {
 @page {
   size: ${pageSizeCss};
   margin: ${marginCss};
@@ -214,7 +222,29 @@ html, body {
   padding: 0;
   background: white;
 }
+
+/* ── Content baseline — match preview output ───────────────────────────── */
+
+/* Tables — reset browser default borders, keep theme's own styling */
+table { border-collapse: collapse; }
+th, td { border: none; }
+td { border-bottom: 1px solid var(--background-modifier-border, #ddd); }
+
+/* Callouts — hide icon and fold, color the title */
+.callout-icon { display: none; }
+.callout-title { color: rgb(var(--callout-color, 68, 138, 255)); }
+.callout-fold { display: none; }
+.callout-content > p:first-child { margin-top: 0; }
+.callout-content > p:last-child { margin-bottom: 0; }
+
+/* ── Page break hints ──────────────────────────────────────────────────── */
+/* Prevent Chromium from splitting callouts, tables, and code blocks */
+.callout, table, pre, blockquote { break-inside: avoid; }
+/* Keep headings attached to the content that follows them */
+h1, h2, h3, h4, h5, h6 { break-after: avoid; }
+
 .copy-code-button { display: none; }
+}
 </style>
 </head>
 <body class="markdown-rendered">

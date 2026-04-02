@@ -615,34 +615,41 @@ function buildDocument(
 <head>
 <meta charset="utf-8">
 <style>
+/* Declare layer order — later layers always win regardless of specificity */
+@layer obsidian, theme, layout;
+
 /* ══════════════════════════════════════════════════════════════════════════
    LAYER 1 — Obsidian's base CSS
    Copied from the main window's <style> elements so the iframe has the same
    callout icons, code highlighting, CSS variables, etc. that the PDF sees.
    ══════════════════════════════════════════════════════════════════════════ */
+@layer obsidian {
 ${obsidianCss}
+}
 
 /* ══════════════════════════════════════════════════════════════════════════
    LAYER 2 — Typeset theme CSS
    Print-specific overrides (fonts, sizes, colors).  Comes after Obsidian's
    CSS so any conflicts resolve in favour of the theme.
    ══════════════════════════════════════════════════════════════════════════ */
+@layer theme {
 ${themeCss}
+}
 
 /* ══════════════════════════════════════════════════════════════════════════
    LAYER 3 — Preview layout (MUST BE LAST)
-   Page-box chrome, grey surround, and content clipping.  Uses !important on
-   body-level properties because Obsidian's CSS sets overflow:hidden / height
-   on body for its own pane management — those break iframe scrolling.
+   Page-box chrome, grey surround, and content clipping.  @layer ordering
+   guarantees these override Obsidian and theme rules without !important.
    ══════════════════════════════════════════════════════════════════════════ */
+@layer layout {
 
 /* ── Structural body overrides ──────────────────────────────────────────── */
 html, body {
-	margin:   0 !important;
-	padding:  0 !important;
-	height:   auto !important;
-	overflow: auto !important;
-	background: #d0d0d0 !important;
+	margin:   0;
+	padding:  0;
+	height:   auto;
+	overflow: auto;
+	background: #d0d0d0;
 }
 
 /* ── Grey surround ──────────────────────────────────────────────────────── */
@@ -668,7 +675,7 @@ html, body {
 .typeset-page-box {
 	width: ${pageWidthPx}px;
 	height: ${pageHeightPx}px;
-	background: white !important;
+	background: white;
 	border: 1px solid #bbb;
 	box-shadow: 0 2px 16px rgba(0, 0, 0, 0.25);
 	overflow: hidden;
@@ -691,8 +698,6 @@ html, body {
 }
 
 /* ── Content element baseline — match PDF output ──────────────────────── */
-/* Only override things the theme CSS doesn't cover. Low specificity so
-   theme rules always win. */
 
 /* Tables — reset browser default borders, keep theme's own styling */
 table { border-collapse: collapse; }
@@ -700,20 +705,22 @@ th, td { border: none; }
 td { border-bottom: 1px solid var(--background-modifier-border, #ddd); }
 
 /* Callouts — hide icon and fold, color the title */
-.callout-icon { display: none !important; }
-.callout-title { color: rgb(var(--callout-color, 68, 138, 255)) !important; }
-.callout-fold { display: none !important; }
+.callout-icon { display: none; }
+.callout-title { color: rgb(var(--callout-color, 68, 138, 255)); }
+.callout-fold { display: none; }
 .callout-content > p:first-child { margin-top: 0; }
 .callout-content > p:last-child { margin-bottom: 0; }
 
 /* ── Page content / measure div ─────────────────────────────────────────── */
 .typeset-page-content {
-	position: absolute !important;
+	position: absolute;
 	left: 0;
-	width: ${pageWidthPx}px !important;
-	padding: ${marginCss} !important;
-	box-sizing: border-box !important;
+	width: ${pageWidthPx}px;
+	padding: ${marginCss};
+	box-sizing: border-box;
 }
+
+} /* end @layer layout */
 </style>
 </head>
 <body class="markdown-rendered">
