@@ -12,8 +12,11 @@ const ANNOTATION_REGEX = /^\{\s*(\.[a-zA-Z_][\w-]*(?:\s+\.[a-zA-Z_][\w-]*)*)\s*\
 const P_WRAPPED_ANNOTATION_RE = /^<p[^>]*>(\{[^<]+\})<\/p>$/;
 
 // Matches any block-level opening or closing tag
-const BLOCK_TAGS = "p|h[1-6]|ul|ol|li|blockquote|table|thead|tbody|tr|th|td|pre|div|figure|figcaption|section|article|aside|header|footer|main";
+const BLOCK_TAGS = "p|h[1-6]|ul|ol|li|blockquote|table|thead|tbody|tr|th|td|pre|div|figure|figcaption|section|article|aside|header|footer|main|hr";
 const TAG_RE = new RegExp(`<(/?)(?:${BLOCK_TAGS})(\\s[^>]*)?>`, "g");
+
+// Void (self-closing) elements — have no closing tag, so they don't affect depth
+const VOID_TAGS = new Set(["hr", "br", "img"]);
 
 /**
  * Parses {.classname} annotations in HTML and applies them as CSS classes
@@ -71,6 +74,19 @@ export function parseBlockClasses(html: string): string {
 			// Process tags right to left (we are walking the document backwards)
 			for (let k = tags.length - 1; k >= 0; k--) {
 				const tag = tags[k];
+
+				// Void elements (hr, br, img) have no closing tag — they don't
+				// affect nesting depth. If we encounter one at depth 0, it's a
+				// valid sibling target for the annotation.
+				if (VOID_TAGS.has(tag.tagName)) {
+					if (depth === 0) {
+						result[j] = injectClassAtPosition(resultLine, tag, classes);
+						applied = true;
+						break outer;
+					}
+					continue; // skip depth tracking
+				}
+
 				if (tag.isClose) {
 					depth++;
 				} else {

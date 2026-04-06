@@ -38,6 +38,10 @@ export class TypesetPreviewView extends ItemView {
 	private currentThemeName = "";
 	private iframeEl: HTMLIFrameElement | null = null;
 	private debounceTimer: number | null = null;
+	private zoomMode: "fit-width" | "fit-page" | "manual" = "fit-width";
+	private manualZoom = 1; // 0.25–2.0
+	private lastPageWidthPx = 0;
+	private lastPageHeightPx = 0;
 
 	// ── Render cache ──────────────────────────────────────────────────────────
 	// Themes and CSS are re-loaded from disk only when the active theme changes,
@@ -303,6 +307,33 @@ export class TypesetPreviewView extends ItemView {
 				const pages: HTMLElement[][] = [];
 				let currentPage: HTMLElement[] = [];
 
+				// ── Normalization pre-pass ────────────────────────────
+				// Convert ALL break directives into a single breakBefore
+				// flag per element. This means:
+				//   1. Elements with CSS break-before (e.g. stat-block-wide)
+				//      or .break-before class → breakBefore = true
+				//   2. Elements with .page-break (break-after) → the NEXT
+				//      element gets breakBefore = true
+				// After this, the main loop only ever checks breakBefore.
+				const breakBefore = new Set<number>();
+
+				for (let idx = 0; idx < elements.length; idx++) {
+					const el = elements[idx];
+					if (!el.classList) continue;
+
+					// Direct break-before: element wants a new page before it
+					if (el.classList.contains("break-before") ||
+						el.classList.contains("callout-stat-block-wide")) {
+						breakBefore.add(idx);
+					}
+
+					// Break-after (.page-break): normalize to break-before
+					// on the NEXT element
+					if (el.classList.contains("page-break") && idx + 1 < elements.length) {
+						breakBefore.add(idx + 1);
+					}
+				}
+
 				const createMC = (): HTMLDivElement => {
 					const mc = doc.createElement("div");
 					mc.className = "markdown-rendered";
@@ -319,6 +350,17 @@ export class TypesetPreviewView extends ItemView {
 
 				for (let idx = 0; idx < elements.length; idx++) {
 					const el = elements[idx];
+
+					// ── Forced page break ────────────────────────────
+					// If this element has breakBefore and the current page
+					// isn't empty, finalize the current page first.
+					if (breakBefore.has(idx) && currentPage.length > 0) {
+						pages.push([...currentPage]);
+						mc.remove();
+						mc = createMC();
+						currentPage = [];
+					}
+
 					const clone = el.cloneNode(true) as HTMLElement;
 					mc.appendChild(clone);
 
@@ -387,6 +429,11 @@ export class TypesetPreviewView extends ItemView {
 				const totalHeight = measure.scrollHeight;
 				const measureTop  = measure.getBoundingClientRect().top;
 
+				// Collect forced page-break positions from .page-break elements
+				const forceBreaks: number[] = Array.from(
+					measure.querySelectorAll(".page-break"),
+				).map(el => el.getBoundingClientRect().bottom - measureTop);
+
 				type Block = { top: number; bottom: number; avoidBreakInside: boolean; avoidBreakAfter: boolean };
 				const blocks: Block[] = Array.from(
 					measure.querySelectorAll("p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, .callout, hr, img"),
@@ -438,7 +485,14 @@ export class TypesetPreviewView extends ItemView {
 				const pageStarts: number[] = [0];
 				let prev = 0;
 				while (prev < totalHeight) {
+					// Check for forced page breaks before the natural target
 					const target = prev + contentAreaHeightPx;
+					const forcedBreak = forceBreaks.find(fb => fb > prev && fb <= target);
+					if (forcedBreak !== undefined) {
+						pageStarts.push(forcedBreak);
+						prev = forcedBreak;
+						continue;
+					}
 					if (target >= totalHeight) break;
 					const next = smartBreak(prev, target);
 					pageStarts.push(next);
@@ -481,10 +535,10 @@ export class TypesetPreviewView extends ItemView {
 
 			measure.remove();
 
-			// ── Fit to width ──────────────────────────────────────────────────
-			const available = scrollEl.clientWidth - 64; // 32px padding each side
-			const scale     = Math.min(1, available / pageWidthPx);
-			pagesContainer.style.zoom = String(scale);
+			// ── Apply zoom ────────────────────────────────────────────────────
+			this.lastPageWidthPx = pageWidthPx;
+			this.lastPageHeightPx = pageHeightPx;
+			this.applyZoom();
 
 			// Restore scroll position after re-render.
 			if (prevScroll > 0) scrollEl.scrollTop = prevScroll;
@@ -494,6 +548,45 @@ export class TypesetPreviewView extends ItemView {
 	}
 
 	// ── Private helpers ───────────────────────────────────────────────────────
+
+	private applyZoom(): void {
+		const doc = this.iframeEl?.contentDocument;
+		if (!doc) return;
+		const scrollEl = doc.getElementById("typeset-scroll");
+		const pagesContainer = doc.getElementById("typeset-pages");
+		if (!scrollEl || !pagesContainer) return;
+
+		let scale: number;
+		if (this.zoomMode === "fit-width") {
+			const available = scrollEl.clientWidth - 16; // 8px padding each side
+			scale = Math.min(1, available / this.lastPageWidthPx);
+		} else if (this.zoomMode === "fit-page") {
+			const availW = scrollEl.clientWidth - 16;
+			const availH = scrollEl.clientHeight - 16;
+			const scaleW = availW / this.lastPageWidthPx;
+			const scaleH = availH / this.lastPageHeightPx;
+			scale = Math.min(1, scaleW, scaleH);
+		} else {
+			scale = this.manualZoom;
+		}
+
+		pagesContainer.style.zoom = String(scale);
+	}
+
+	private setZoomMode(mode: "fit-width" | "fit-page" | "manual", manualValue?: number): void {
+		this.zoomMode = mode;
+		if (manualValue !== undefined) this.manualZoom = manualValue;
+		this.applyZoom();
+		// Update the zoom label in the info bar
+		const label = this.infoBarEl?.querySelector(".typeset-zoom-label");
+		if (label) label.textContent = this.getZoomLabel();
+	}
+
+	private getZoomLabel(): string {
+		if (this.zoomMode === "fit-width") return "Fit Width";
+		if (this.zoomMode === "fit-page") return "Fit Page";
+		return `${Math.round(this.manualZoom * 100)}%`;
+	}
 
 	private updateInfoBar(file: TFile, themeName: string): void {
 		if (!this.infoBarEl) return;
@@ -530,6 +623,55 @@ export class TypesetPreviewView extends ItemView {
 		themeChip.addEventListener("mouseenter", () => themeChip.style.background = "var(--background-modifier-hover)");
 		themeChip.addEventListener("mouseleave", () => themeChip.style.background = "");
 		themeChip.addEventListener("click", () => this.openThemePicker());
+
+		// Spacer pushes zoom controls to the right
+		const spacer = this.infoBarEl.createSpan();
+		spacer.style.cssText = "flex:1;";
+
+		// Zoom out button
+		const zoomOutBtn = this.infoBarEl.createSpan();
+		zoomOutBtn.style.cssText = chipCss;
+		zoomOutBtn.setAttribute("aria-label", "Zoom out");
+		const zoomOutIcon = zoomOutBtn.createSpan();
+		setIcon(zoomOutIcon, "lucide-minus");
+		zoomOutIcon.style.cssText = "display:flex;align-items:center;width:12px;height:12px;";
+		zoomOutBtn.addEventListener("mouseenter", () => zoomOutBtn.style.background = "var(--background-modifier-hover)");
+		zoomOutBtn.addEventListener("mouseleave", () => zoomOutBtn.style.background = "");
+		zoomOutBtn.addEventListener("click", () => {
+			const newZoom = Math.max(0.25, (this.zoomMode === "manual" ? this.manualZoom : 1) - 0.1);
+			this.setZoomMode("manual", Math.round(newZoom * 100) / 100);
+		});
+
+		// Zoom label — click cycles through modes
+		const zoomLabel = this.infoBarEl.createSpan({ cls: "typeset-zoom-label" });
+		zoomLabel.style.cssText = chipCss + "min-width:60px;justify-content:center;user-select:none;";
+		zoomLabel.textContent = this.getZoomLabel();
+		zoomLabel.setAttribute("aria-label", "Click to cycle: Fit Width → Fit Page → manual");
+		zoomLabel.addEventListener("mouseenter", () => zoomLabel.style.background = "var(--background-modifier-hover)");
+		zoomLabel.addEventListener("mouseleave", () => zoomLabel.style.background = "");
+		zoomLabel.addEventListener("click", () => {
+			if (this.zoomMode === "fit-width") {
+				this.setZoomMode("fit-page");
+			} else if (this.zoomMode === "fit-page") {
+				this.setZoomMode("manual", 1);
+			} else {
+				this.setZoomMode("fit-width");
+			}
+		});
+
+		// Zoom in button
+		const zoomInBtn = this.infoBarEl.createSpan();
+		zoomInBtn.style.cssText = chipCss;
+		zoomInBtn.setAttribute("aria-label", "Zoom in");
+		const zoomInIcon = zoomInBtn.createSpan();
+		setIcon(zoomInIcon, "lucide-plus");
+		zoomInIcon.style.cssText = "display:flex;align-items:center;width:12px;height:12px;";
+		zoomInBtn.addEventListener("mouseenter", () => zoomInBtn.style.background = "var(--background-modifier-hover)");
+		zoomInBtn.addEventListener("mouseleave", () => zoomInBtn.style.background = "");
+		zoomInBtn.addEventListener("click", () => {
+			const newZoom = Math.min(2, (this.zoomMode === "manual" ? this.manualZoom : 1) + 0.1);
+			this.setZoomMode("manual", Math.round(newZoom * 100) / 100);
+		});
 	}
 
 	private async exportPdf(): Promise<void> {
@@ -722,7 +864,7 @@ html, body {
 /* ── Grey surround ──────────────────────────────────────────────────────── */
 #typeset-scroll {
 	background: #d0d0d0;
-	padding: 32px;
+	padding: 8px;
 	box-sizing: border-box;
 	overflow-x: auto;
 }

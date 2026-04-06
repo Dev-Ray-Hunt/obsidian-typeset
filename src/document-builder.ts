@@ -242,6 +242,8 @@ td { border-bottom: 1px solid var(--background-modifier-border, #ddd); }
 .callout, table, pre, blockquote { break-inside: avoid; }
 /* Keep headings attached to the content that follows them */
 h1, h2, h3, h4, h5, h6 { break-after: avoid; }
+/* Explicit page break via {.page-break} annotation */
+.page-break { break-after: page; }
 
 .copy-code-button { display: none; }
 }

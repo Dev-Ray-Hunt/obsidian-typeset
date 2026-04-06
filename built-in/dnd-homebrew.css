@@ -221,36 +221,139 @@ img {
    D&D CALLOUTS
    ============================================================ */
 
-/* --- Stat Block --- */
+/* --- Stat Block (shared styling for stat-block and stat-block-wide) --- */
 .callout-stat-block,
-.callout[data-callout="stat-block"] {
+.callout[data-callout="stat-block"],
+.callout-stat-block-wide,
+.callout[data-callout="stat-block-wide"] {
 	background-color: #fdf1dc;
-	border: none;
-	border-top: 3px solid #9c2b1b;
-	border-bottom: 3px solid #9c2b1b;
-	border-radius: 0;
-	padding: 0.6em 0.8em;
+	border: 1px solid #c9ad6a;
+	border-radius: 8px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+	padding: 0.8em 1em;
 	margin: 0.8em 0;
 	page-break-inside: avoid;
 }
 
+/* Hide the callout title bar */
 .callout-stat-block .callout-title,
-.callout[data-callout="stat-block"] .callout-title {
-	color: #58180d;
-	font-size: 14pt;
-	font-variant: small-caps;
-	letter-spacing: 0.03em;
-	text-transform: none;
-	border-bottom: 1px solid #9c2b1b;
-	padding-bottom: 0.2em;
-	margin-bottom: 0.3em;
+.callout[data-callout="stat-block"] .callout-title,
+.callout-stat-block-wide .callout-title,
+.callout[data-callout="stat-block-wide"] .callout-title {
+	display: none;
 }
 
+/* Creature name (h2 inside stat block) */
+.callout-stat-block h2,
+.callout[data-callout="stat-block"] h2,
+.callout-stat-block-wide h2,
+.callout[data-callout="stat-block-wide"] h2 {
+	font-size: 16pt;
+	font-variant: small-caps;
+	font-weight: 700;
+	color: #58180d;
+	margin: 0 0 0.1em 0;
+	padding: 0;
+	border-bottom: 2px solid #9c2b1b;
+	padding-bottom: 0.1em;
+}
+
+/* Creature type line (italic em after h2) */
+.callout-stat-block .callout-content > p:first-of-type em,
+.callout[data-callout="stat-block"] .callout-content > p:first-of-type em,
+.callout-stat-block-wide .callout-content > p:first-of-type em,
+.callout[data-callout="stat-block-wide"] .callout-content > p:first-of-type em {
+	font-size: 9pt;
+	color: #333;
+}
+
+/* Section headers (h3 — Traits, Actions, Bonus Actions) */
+.callout-stat-block h3,
+.callout[data-callout="stat-block"] h3,
+.callout-stat-block-wide h3,
+.callout[data-callout="stat-block-wide"] h3 {
+	font-size: 12pt;
+	font-variant: small-caps;
+	font-weight: 700;
+	color: #58180d;
+	margin: 0.5em 0 0.2em 0;
+	border-bottom: 1px solid #9c2b1b;
+	padding-bottom: 0.1em;
+}
+
+/* Gradient dividers */
 .callout-stat-block hr,
-.callout[data-callout="stat-block"] hr {
-	height: 1px;
+.callout[data-callout="stat-block"] hr,
+.callout-stat-block-wide hr,
+.callout[data-callout="stat-block-wide"] hr {
+	height: 2px;
 	background: linear-gradient(to right, transparent, #9c2b1b, transparent);
 	margin: 0.4em 0;
+}
+
+/* Compact content spacing */
+.callout-stat-block .callout-content p,
+.callout[data-callout="stat-block"] .callout-content p,
+.callout-stat-block-wide .callout-content p,
+.callout[data-callout="stat-block-wide"] .callout-content p {
+	margin: 0.15em 0;
+	font-size: 9pt;
+}
+
+/* Stat ability table (STR/DEX/CON/INT/WIS/CHA) */
+.callout-stat-block table,
+.callout[data-callout="stat-block"] table,
+.callout-stat-block-wide table,
+.callout[data-callout="stat-block-wide"] table {
+	margin: 0.3em 0;
+	width: 100%;
+	font-size: 9pt;
+}
+
+.callout-stat-block th,
+.callout[data-callout="stat-block"] th,
+.callout-stat-block-wide th,
+.callout[data-callout="stat-block-wide"] th {
+	text-align: center;
+	font-size: 8pt;
+	font-variant: small-caps;
+	font-weight: 700;
+	color: #58180d;
+	padding: 0.2em 0.4em;
+	background: transparent;
+	border-bottom: none;
+}
+
+.callout-stat-block td,
+.callout[data-callout="stat-block"] td,
+.callout-stat-block-wide td,
+.callout[data-callout="stat-block-wide"] td {
+	text-align: center;
+	font-size: 9pt;
+	padding: 0.2em 0.4em;
+	border-bottom: none;
+	background: transparent;
+}
+
+.callout-stat-block tr:nth-child(even) td,
+.callout[data-callout="stat-block"] tr:nth-child(even) td,
+.callout-stat-block-wide tr:nth-child(even) td,
+.callout[data-callout="stat-block-wide"] tr:nth-child(even) td {
+	background: transparent;
+}
+
+/* --- Stat Block Wide — full width + 2-column content --- */
+.callout-stat-block-wide,
+.callout[data-callout="stat-block-wide"] {
+	column-span: all;
+	break-before: page;
+	page-break-before: always;
+}
+
+.callout-stat-block-wide .callout-content,
+.callout[data-callout="stat-block-wide"] .callout-content {
+	column-count: 2;
+	column-gap: 1.5em;
 }
 
 /* --- Read-Aloud Text --- */
@@ -319,16 +422,18 @@ img {
 /* --- Stat Block (on tables/divs) --- */
 .stat-block {
 	background-color: #fdf1dc;
-	border-top: 3px solid #9c2b1b;
-	border-bottom: 3px solid #9c2b1b;
-	border-left: none;
-	border-right: none;
-	padding: 0.4em 0;
+	border: 1px solid #c9ad6a;
+	border-radius: 8px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+	padding: 0.8em 1em;
 	break-inside: avoid;
 }
 
 .stat-block th {
-	background-color: #9c2b1b;
+	background-color: #e8d5a8;
+	color: #58180d;
+	font-variant: small-caps;
+	border-bottom: 1px solid #9c2b1b;
 }
 
 /* --- Read-Aloud (on non-callout elements) --- */
@@ -350,6 +455,7 @@ img {
 	padding: 0.4em 0.6em;
 	break-inside: avoid;
 }
+
 
 /* --- Note Box (designer/DM notes) --- */
 .note-box {
@@ -379,7 +485,8 @@ img {
 }
 
 /* --- Full-Width (span both columns) --- */
-.full-width {
+.full-width,
+.wide {
 	column-span: all;
 }
 
@@ -439,6 +546,7 @@ img {
    ============================================================ */
 
 .page-break {
+	break-after: page;
 	page-break-after: always;
 }
 

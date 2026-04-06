@@ -46,6 +46,7 @@ export const DEFAULT_SETTINGS: TypesetSettings = {
 	},
 	activeTheme: "default.css",
 	outputFolder: "",
+	editBuiltInThemes: false,
 };
 
 // Page dimensions in mm — used to warn when margins exceed the page size.
@@ -391,6 +392,23 @@ export class TypesetSettingTab extends PluginSettingTab {
 		makeField("right", updateLR);
 		lrWarning = containerEl.createDiv({ cls: "typeset-margin-pair-warning" });
 		updateLR();
+
+		// --- Advanced ---
+		containerEl.createEl("h3", { text: "Advanced" });
+
+		new Setting(containerEl)
+			.setName("Edit built-in themes")
+			.setDesc(
+				"Allow editing built-in themes directly in the CSS editor. Changes are saved back to the plugin's built-in folder.",
+			)
+			.addToggle(toggle =>
+				toggle
+					.setValue(this.settings.editBuiltInThemes)
+					.onChange(async value => {
+						this.settings.editBuiltInThemes = value;
+						await this.save(this.settings);
+					}),
+			);
 
 		// --- Export ---
 		containerEl.createEl("h3", { text: "Export" });
