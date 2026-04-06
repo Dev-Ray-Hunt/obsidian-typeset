@@ -33,6 +33,7 @@ export interface TypesetSettings {
 	defaultLayout: PageLayout;
 	activeTheme: string; // filename of the active CSS theme
 	outputFolder: string; // where to save exported PDFs
+	editBuiltInThemes: boolean; // allow editing built-in themes in the CSS editor
 }
 
 export interface ThemeInfo {

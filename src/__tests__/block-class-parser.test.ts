@@ -115,6 +115,56 @@ describe("parseBlockClasses", () => {
 	});
 });
 
+describe("parseBlockClasses — void elements (hr)", () => {
+	it("applies .page-break to an <hr> element", () => {
+		const input = `<hr>\n<p dir="auto">{.page-break}</p>`;
+		const output = parseBlockClasses(input);
+		expect(output).toContain('<hr class="page-break">');
+		expect(output).not.toContain("{.page-break}");
+	});
+
+	it("skips <hr> inside nested elements when tracking depth", () => {
+		const input = `<div><hr><p>text</p></div>\n<p dir="auto">{.wide}</p>`;
+		const output = parseBlockClasses(input);
+		expect(output).toContain('<div class="wide">');
+		expect(output).not.toContain("{.wide}");
+	});
+});
+
+describe("parseBlockClasses — callout + {.wide}", () => {
+	it("applies .wide to outer callout div (single-line callout)", () => {
+		// Obsidian renders callouts as nested divs. The entire callout opening
+		// is typically on one line, content on separate lines, closing on last line.
+		const input = [
+			'<div class="callout callout-stat-block" data-callout="stat-block"><div class="callout-title" dir="auto"><div class="callout-icon"><svg>x</svg></div><div class="callout-title-inner">stat-block</div></div><div class="callout-content">',
+			'<h2 data-heading="Goblin" dir="auto">Goblin</h2>',
+			'<p dir="auto"><em>Small humanoid</em></p>',
+			'<table>',
+			'<thead><tr><th>STR</th><th>DEX</th></tr></thead>',
+			'<tbody><tr><td>8</td><td>14</td></tr></tbody>',
+			'</table>',
+			'</div></div>',
+			'<p dir="auto">{.wide}</p>',
+		].join('\n');
+		const output = parseBlockClasses(input);
+		expect(output).toContain('callout-stat-block wide');
+		expect(output).not.toContain('{.wide}');
+	});
+
+	it("applies .wide to outer callout div (multi-line closing)", () => {
+		const input = [
+			'<div class="callout callout-stat-block" data-callout="stat-block"><div class="callout-title"><div class="callout-icon"></div><div class="callout-title-inner">stat-block</div></div><div class="callout-content">',
+			'<p>Content</p>',
+			'</div>',
+			'</div>',
+			'<p dir="auto">{.wide}</p>',
+		].join('\n');
+		const output = parseBlockClasses(input);
+		expect(output).toContain('callout-stat-block wide');
+		expect(output).not.toContain('{.wide}');
+	});
+});
+
 describe("applyCalloutClasses", () => {
 	// Custom callout type gets callout-<type> class
 	it("adds callout-stat-block class to a stat-block callout", () => {

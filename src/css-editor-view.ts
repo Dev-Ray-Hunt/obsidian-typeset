@@ -159,7 +159,7 @@ export class CssEditorView extends ItemView {
 		// ── CM6 editor ──────────────────────────────────────────────────────
 		const editorEl = contentEl.createDiv({ cls: "typeset-css-editor-cm" });
 		editorEl.style.cssText = "flex:1;min-height:0;overflow:auto;";
-		const isBuiltIn = this.activeTheme?.isBuiltIn ?? false;
+		const isReadOnly = (this.activeTheme?.isBuiltIn && !this.plugin.settings.editBuiltInThemes) ?? false;
 
 		const state = EditorState.create({
 			doc: css,
@@ -170,10 +170,11 @@ export class CssEditorView extends ItemView {
 				syntaxHighlighting(defaultHighlightStyle),
 				// Search highlight decorations — reacts to setSearchQuery effects.
 				cssSearchField,
-				this.readOnlyCompartment.of(EditorState.readOnly.of(isBuiltIn)),
+				this.readOnlyCompartment.of(EditorState.readOnly.of(isReadOnly)),
 				EditorView.updateListener.of((update: ViewUpdate) => {
-					if (update.docChanged && !this.activeTheme?.isBuiltIn) {
-						this.scheduleSave();
+					if (update.docChanged) {
+						const locked = this.activeTheme?.isBuiltIn && !this.plugin.settings.editBuiltInThemes;
+						if (!locked) this.scheduleSave();
 					}
 				}),
 			],
@@ -181,7 +182,7 @@ export class CssEditorView extends ItemView {
 
 		this.cmView = new EditorView({ state, parent: editorEl });
 
-		if (isBuiltIn) this.setStatus("Read-only (built-in theme)");
+		if (isReadOnly) this.setStatus("Read-only (built-in theme)");
 
 		// getDisplayText() was called by Obsidian before onOpen() resolved
 		// the theme, so we force both the tab and the pane header to refresh.
@@ -234,17 +235,17 @@ export class CssEditorView extends ItemView {
 		if (this.dropdown) this.dropdown.value = theme.filename;
 
 		const css = await this.plugin.cssManager.loadThemeCss(theme);
-		const isBuiltIn = theme.isBuiltIn;
+		const isReadOnly = theme.isBuiltIn && !this.plugin.settings.editBuiltInThemes;
 
-		// Replace editor content and toggle read-only in one CM6 transaction.
+		// Replace editor content and toggle read-only based on theme + setting.
 		this.cmView.dispatch({
 			changes: { from: 0, to: this.cmView.state.doc.length, insert: css },
 			effects: this.readOnlyCompartment.reconfigure(
-				EditorState.readOnly.of(isBuiltIn),
+				EditorState.readOnly.of(isReadOnly),
 			),
 		});
 
-		this.setStatus(isBuiltIn ? "Read-only (built-in theme)" : "");
+		this.setStatus(isReadOnly ? "Read-only (built-in theme)" : "");
 		this.refreshPaneTitle();
 	}
 

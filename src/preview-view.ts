@@ -38,6 +38,10 @@ export class TypesetPreviewView extends ItemView {
 	private currentThemeName = "";
 	private iframeEl: HTMLIFrameElement | null = null;
 	private debounceTimer: number | null = null;
+	private zoomMode: "fit-width" | "fit-page" | "manual" = "fit-width";
+	private manualZoom = 1; // 0.25–2.0
+	private lastPageWidthPx = 0;
+	private lastPageHeightPx = 0;
 
 	// ── Render cache ──────────────────────────────────────────────────────────
 	// Themes and CSS are re-loaded from disk only when the active theme changes,
@@ -284,143 +288,257 @@ export class TypesetPreviewView extends ItemView {
 			const scrollEl     = doc.getElementById("typeset-scroll");
 			if (!measure || !pagesContainer || !scrollEl) return;
 
-			const totalHeight = measure.scrollHeight;
-			const contentHtml = measure.innerHTML;
-			const measureTop  = measure.getBoundingClientRect().top;
+			// ── Detect theme columns ─────────────────────────────────────────
+			const colCountMatch = themeCss.match(/column-count\s*:\s*(\d+)/);
+			const colGapMatch   = themeCss.match(/column-gap\s*:\s*([\d.]+\w+)/);
+			const themeColCount = colCountMatch ? parseInt(colCountMatch[1], 10) : 1;
+			const themeColGap   = colGapMatch   ? colGapMatch[1] : "20pt";
+			const isColumned    = themeColCount >= 2;
 
-			// ── Block element map ─────────────────────────────────────────────
-			// Collect all significant block elements with their measured positions.
-			// We check each element for two CSS hints:
-			//   avoidBreakInside — .callout, table, pre: never split mid-element
-			//   avoidBreakAfter  — h1–h6: keep heading glued to the content below it
-			type Block = { top: number; bottom: number; avoidBreakInside: boolean; avoidBreakAfter: boolean };
-			const blocks: Block[] = Array.from(
-				measure.querySelectorAll("p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, .callout, hr, img"),
-			).map(el => {
-				const r = el.getBoundingClientRect();
-				const isHeading  = /^H[1-6]$/.test(el.tagName);
-				const isAvoidInside = el.classList.contains("callout")
-					|| el.tagName === "TABLE"
-					|| el.tagName === "PRE"
-					|| el.tagName === "BLOCKQUOTE";
-				return {
-					top:              r.top    - measureTop,
-					bottom:           r.bottom - measureTop,
-					avoidBreakInside: isAvoidInside,
-					avoidBreakAfter:  isHeading,
-				};
-			}).sort((a, b) => a.top - b.top);
+			if (isColumned) {
+				// ── Columned pagination: overflow detection ───────────────────
+				// The browser's native column engine handles column layout.
+				// We create an off-screen measurement container matching one
+				// page's content area (with balanced columns, no height
+				// constraint) and append elements one by one.  When the
+				// balanced column height exceeds the page's content area,
+				// we know the page is full and start a new one.
+				const elements = Array.from(measure.children) as HTMLElement[];
+				const pages: HTMLElement[][] = [];
+				let currentPage: HTMLElement[] = [];
 
-			// ── Smart break finder ────────────────────────────────────────────
-			// Given the previous page's break position and the raw target
-			// (prevBreak + pageHeightPx), return a clean break position that:
-			//   • doesn't split any avoidBreakInside element (callout, table, pre)
-			//   • doesn't break immediately after a heading — keeps heading + first
-			//     content together (avoidBreakAfter)
-			//
-			// Key invariant: the "revert to before-heading" logic fires ONLY when
-			// the block that follows the heading STRADDLES the boundary.  When the
-			// heading and the block both fit, bestBreak advances normally.
-			function smartBreak(prevBreak: number, target: number): number {
-				let bestBreak        = prevBreak; // best clean break found so far
-				let beforeHeadingPos = prevBreak; // bestBreak value just before a heading
-				let pendingHeading   = false;     // true while last seen block was a heading
+				// ── Normalization pre-pass ────────────────────────────
+				// Convert ALL break directives into a single breakBefore
+				// flag per element. This means:
+				//   1. Elements with CSS break-before (e.g. stat-block-wide)
+				//      or .break-before class → breakBefore = true
+				//   2. Elements with .page-break (break-after) → the NEXT
+				//      element gets breakBefore = true
+				// After this, the main loop only ever checks breakBefore.
+				const breakBefore = new Set<number>();
 
-				for (const b of blocks) {
-					if (b.top <= prevBreak) continue; // before our window
-					if (b.top >= target)   break;      // past the boundary
+				for (let idx = 0; idx < elements.length; idx++) {
+					const el = elements[idx];
+					if (!el.classList) continue;
 
-					if (b.bottom <= target) {
-						// ── Block fits entirely on this page ─────────────────────
-						if (b.avoidBreakAfter) {
-							// Heading fits — remember the break point just before it so
-							// we can retreat here if the *next* block doesn't fit.
-							if (!pendingHeading) beforeHeadingPos = bestBreak;
-							pendingHeading = true;
-							// Don't advance bestBreak yet; wait to see if next content fits.
-						} else {
-							// Non-heading block fits.  Always advance bestBreak.
-							// (If a heading preceded it and BOTH fit, heading stays on this
-							// page with its content — no revert needed.)
-							bestBreak     = b.bottom;
-							pendingHeading = false;
-						}
-					} else {
-						// ── Block straddles the boundary ─────────────────────────
-						if (pendingHeading) {
-							// Content after the heading doesn't fit — retreat to just
-							// before the heading so it travels with its content to p.N+1.
-							bestBreak = beforeHeadingPos;
-						} else {
-							// No pending heading — break just before this block.
-							bestBreak = b.top > prevBreak ? b.top : prevBreak;
-						}
-						break;
+					// Direct break-before: element wants a new page before it
+					if (el.classList.contains("break-before") ||
+						el.classList.contains("callout-stat-block-wide")) {
+						breakBefore.add(idx);
+					}
+
+					// Break-after (.page-break): normalize to break-before
+					// on the NEXT element
+					if (el.classList.contains("page-break") && idx + 1 < elements.length) {
+						breakBefore.add(idx + 1);
 					}
 				}
 
-				// Fall back to the raw boundary if no clean break was found.
-				return bestBreak > prevBreak ? bestBreak : target;
-			}
+				const createMC = (): HTMLDivElement => {
+					const mc = doc.createElement("div");
+					mc.className = "markdown-rendered";
+					mc.style.cssText =
+						`position:absolute;left:-9999px;visibility:hidden;` +
+						`width:${contentAreaWidthPx}px;` +
+						`column-count:${themeColCount};column-gap:${themeColGap};` +
+						`column-fill:balance;`;
+					scrollEl.appendChild(mc);
+					return mc;
+				};
 
-			// ── Calculate page start offsets ──────────────────────────────────
-			const pageStarts: number[] = [0];
-			let prev = 0;
-			while (prev < totalHeight) {
-				const target = prev + contentAreaHeightPx;
-				if (target >= totalHeight) break;
-				const next = smartBreak(prev, target);
-				pageStarts.push(next);
-				prev = next;
-			}
+				let mc = createMC();
 
-			// ── Build page boxes ──────────────────────────────────────────────
-			for (let i = 0; i < pageStarts.length; i++) {
-				const pageBox = doc.createElement("div");
-				pageBox.className = "typeset-page-box";
+				for (let idx = 0; idx < elements.length; idx++) {
+					const el = elements[idx];
 
-				const label = doc.createElement("div");
-				label.className = "typeset-page-label";
-				label.textContent = `${i + 1}`;
-				pageBox.appendChild(label);
+					// ── Forced page break ────────────────────────────
+					// If this element has breakBefore and the current page
+					// isn't empty, finalize the current page first.
+					if (breakBefore.has(idx) && currentPage.length > 0) {
+						pages.push([...currentPage]);
+						mc.remove();
+						mc = createMC();
+						currentPage = [];
+					}
 
-				// Calculate the exact height of this page's content slice.
-				// Without this clip, smart breaks cause content to repeat:
-				// page N still shows up to pageHeightPx even if pageStarts[N+1]
-				// was moved back, so the overlapping region shows on both pages.
-				const nextStart      = i + 1 < pageStarts.length ? pageStarts[i + 1] : totalHeight;
-				const contentHeight  = nextStart - pageStarts[i];
+					const clone = el.cloneNode(true) as HTMLElement;
+					mc.appendChild(clone);
 
-				const clip = doc.createElement("div");
-				// Pages 2+ need margin-top to recreate the top margin space
-				// (page 1 gets it from the content div's CSS padding-top).
-				const clipMargin = i === 0 ? 0 : topMarginPx;
-				clip.style.cssText = `height:${contentHeight}px;overflow:hidden;position:relative;margin-top:${clipMargin}px;`;
+					if (mc.scrollHeight > contentAreaHeightPx) {
+						// This element pushed us past the page boundary.
+						mc.removeChild(clone);
 
-				const content = doc.createElement("div");
-				content.className = "typeset-page-content markdown-rendered";
-				if (i > 0) {
-					// Remove top padding — the clip's margin-top provides the space.
-					// Compensate the top offset: without padding, content shifts up
-					// by topMarginPx, so add it back to keep alignment correct.
-					content.style.top = `${-pageStarts[i] + topMarginPx}px`;
-					content.style.setProperty("padding-top", "0px", "important");
-				} else {
-					content.style.top = `${-pageStarts[i]}px`;
+						// Heading sticking: if the last element on the current
+						// page is a heading, pull it to the next page so it
+						// stays with the content that follows it.
+						if (
+							currentPage.length > 0 &&
+							/^H[1-6]$/.test(currentPage[currentPage.length - 1].tagName)
+						) {
+							const heading = currentPage.pop()!;
+							if (mc.lastChild) mc.removeChild(mc.lastChild);
+							pages.push([...currentPage]);
+							mc.remove();
+							mc = createMC();
+							currentPage = [heading, el];
+							mc.appendChild(heading.cloneNode(true));
+							mc.appendChild(el.cloneNode(true));
+						} else {
+							pages.push([...currentPage]);
+							mc.remove();
+							mc = createMC();
+							currentPage = [el];
+							mc.appendChild(el.cloneNode(true));
+						}
+					} else {
+						currentPage.push(el);
+					}
 				}
-				content.innerHTML = contentHtml;
 
-				clip.appendChild(content);
-				pageBox.appendChild(clip);
-				pagesContainer.appendChild(pageBox);
+				// Last page
+				if (currentPage.length > 0) pages.push(currentPage);
+				mc.remove();
+
+				// ── Build columned page boxes ────────────────────────────────
+				for (let i = 0; i < pages.length; i++) {
+					const pageBox = doc.createElement("div");
+					pageBox.className = "typeset-page-box";
+
+					const label = doc.createElement("div");
+					label.className = "typeset-page-label";
+					label.textContent = `${i + 1}`;
+					pageBox.appendChild(label);
+
+					const content = doc.createElement("div");
+					content.className = "typeset-page-content markdown-rendered";
+					content.style.cssText =
+						`position:static;` +
+						`column-count:${themeColCount};column-gap:${themeColGap};column-fill:auto;` +
+						`padding:${marginCss};box-sizing:border-box;` +
+						`width:${pageWidthPx}px;height:${pageHeightPx}px;overflow:hidden;`;
+
+					for (const el of pages[i]) {
+						content.appendChild(el.cloneNode(true));
+					}
+
+					pageBox.appendChild(content);
+					pagesContainer.appendChild(pageBox);
+				}
+			} else {
+				// ── Non-columned pagination: clip-based approach ──────────────
+				const totalHeight = measure.scrollHeight;
+				const measureTop  = measure.getBoundingClientRect().top;
+
+				// Collect forced page-break positions from .page-break elements
+				const forceBreaks: number[] = Array.from(
+					measure.querySelectorAll(".page-break"),
+				).map(el => el.getBoundingClientRect().bottom - measureTop);
+
+				type Block = { top: number; bottom: number; avoidBreakInside: boolean; avoidBreakAfter: boolean };
+				const blocks: Block[] = Array.from(
+					measure.querySelectorAll("p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, .callout, hr, img"),
+				).map(el => {
+					const r = el.getBoundingClientRect();
+					const isHeading  = /^H[1-6]$/.test(el.tagName);
+					const isAvoidInside = el.classList.contains("callout")
+						|| el.tagName === "TABLE"
+						|| el.tagName === "PRE"
+						|| el.tagName === "BLOCKQUOTE";
+					return {
+						top:              r.top    - measureTop,
+						bottom:           r.bottom - measureTop,
+						avoidBreakInside: isAvoidInside,
+						avoidBreakAfter:  isHeading,
+					};
+				}).sort((a, b) => a.top - b.top);
+
+				function smartBreak(prevBreak: number, target: number): number {
+					let bestBreak        = prevBreak;
+					let beforeHeadingPos = prevBreak;
+					let pendingHeading   = false;
+
+					for (const b of blocks) {
+						if (b.top <= prevBreak) continue;
+						if (b.top >= target)   break;
+
+						if (b.bottom <= target) {
+							if (b.avoidBreakAfter) {
+								if (!pendingHeading) beforeHeadingPos = bestBreak;
+								pendingHeading = true;
+							} else {
+								bestBreak     = b.bottom;
+								pendingHeading = false;
+							}
+						} else {
+							if (pendingHeading) {
+								bestBreak = beforeHeadingPos;
+							} else {
+								bestBreak = b.top > prevBreak ? b.top : prevBreak;
+							}
+							break;
+						}
+					}
+
+					return bestBreak > prevBreak ? bestBreak : target;
+				}
+
+				const pageStarts: number[] = [0];
+				let prev = 0;
+				while (prev < totalHeight) {
+					// Check for forced page breaks before the natural target
+					const target = prev + contentAreaHeightPx;
+					const forcedBreak = forceBreaks.find(fb => fb > prev && fb <= target);
+					if (forcedBreak !== undefined) {
+						pageStarts.push(forcedBreak);
+						prev = forcedBreak;
+						continue;
+					}
+					if (target >= totalHeight) break;
+					const next = smartBreak(prev, target);
+					pageStarts.push(next);
+					prev = next;
+				}
+
+				const contentHtml = measure.innerHTML;
+
+				for (let i = 0; i < pageStarts.length; i++) {
+					const pageBox = doc.createElement("div");
+					pageBox.className = "typeset-page-box";
+
+					const label = doc.createElement("div");
+					label.className = "typeset-page-label";
+					label.textContent = `${i + 1}`;
+					pageBox.appendChild(label);
+
+					const nextStart      = i + 1 < pageStarts.length ? pageStarts[i + 1] : totalHeight;
+					const contentHeight  = nextStart - pageStarts[i];
+
+					const clip = doc.createElement("div");
+					const clipMargin = i === 0 ? 0 : topMarginPx;
+					clip.style.cssText = `height:${contentHeight}px;overflow:hidden;position:relative;margin-top:${clipMargin}px;`;
+
+					const content = doc.createElement("div");
+					content.className = "typeset-page-content markdown-rendered";
+					if (i > 0) {
+						content.style.top = `${-pageStarts[i] + topMarginPx}px`;
+						content.style.setProperty("padding-top", "0px", "important");
+					} else {
+						content.style.top = `${-pageStarts[i]}px`;
+					}
+					content.innerHTML = contentHtml;
+
+					clip.appendChild(content);
+					pageBox.appendChild(clip);
+					pagesContainer.appendChild(pageBox);
+				}
 			}
 
 			measure.remove();
 
-			// ── Fit to width ──────────────────────────────────────────────────
-			const available = scrollEl.clientWidth - 64; // 32px padding each side
-			const scale     = Math.min(1, available / pageWidthPx);
-			pagesContainer.style.zoom = String(scale);
+			// ── Apply zoom ────────────────────────────────────────────────────
+			this.lastPageWidthPx = pageWidthPx;
+			this.lastPageHeightPx = pageHeightPx;
+			this.applyZoom();
 
 			// Restore scroll position after re-render.
 			if (prevScroll > 0) scrollEl.scrollTop = prevScroll;
@@ -430,6 +548,45 @@ export class TypesetPreviewView extends ItemView {
 	}
 
 	// ── Private helpers ───────────────────────────────────────────────────────
+
+	private applyZoom(): void {
+		const doc = this.iframeEl?.contentDocument;
+		if (!doc) return;
+		const scrollEl = doc.getElementById("typeset-scroll");
+		const pagesContainer = doc.getElementById("typeset-pages");
+		if (!scrollEl || !pagesContainer) return;
+
+		let scale: number;
+		if (this.zoomMode === "fit-width") {
+			const available = scrollEl.clientWidth - 16; // 8px padding each side
+			scale = Math.min(1, available / this.lastPageWidthPx);
+		} else if (this.zoomMode === "fit-page") {
+			const availW = scrollEl.clientWidth - 16;
+			const availH = scrollEl.clientHeight - 16;
+			const scaleW = availW / this.lastPageWidthPx;
+			const scaleH = availH / this.lastPageHeightPx;
+			scale = Math.min(1, scaleW, scaleH);
+		} else {
+			scale = this.manualZoom;
+		}
+
+		pagesContainer.style.zoom = String(scale);
+	}
+
+	private setZoomMode(mode: "fit-width" | "fit-page" | "manual", manualValue?: number): void {
+		this.zoomMode = mode;
+		if (manualValue !== undefined) this.manualZoom = manualValue;
+		this.applyZoom();
+		// Update the zoom label in the info bar
+		const label = this.infoBarEl?.querySelector(".typeset-zoom-label");
+		if (label) label.textContent = this.getZoomLabel();
+	}
+
+	private getZoomLabel(): string {
+		if (this.zoomMode === "fit-width") return "Fit Width";
+		if (this.zoomMode === "fit-page") return "Fit Page";
+		return `${Math.round(this.manualZoom * 100)}%`;
+	}
 
 	private updateInfoBar(file: TFile, themeName: string): void {
 		if (!this.infoBarEl) return;
@@ -466,6 +623,55 @@ export class TypesetPreviewView extends ItemView {
 		themeChip.addEventListener("mouseenter", () => themeChip.style.background = "var(--background-modifier-hover)");
 		themeChip.addEventListener("mouseleave", () => themeChip.style.background = "");
 		themeChip.addEventListener("click", () => this.openThemePicker());
+
+		// Spacer pushes zoom controls to the right
+		const spacer = this.infoBarEl.createSpan();
+		spacer.style.cssText = "flex:1;";
+
+		// Zoom out button
+		const zoomOutBtn = this.infoBarEl.createSpan();
+		zoomOutBtn.style.cssText = chipCss;
+		zoomOutBtn.setAttribute("aria-label", "Zoom out");
+		const zoomOutIcon = zoomOutBtn.createSpan();
+		setIcon(zoomOutIcon, "lucide-minus");
+		zoomOutIcon.style.cssText = "display:flex;align-items:center;width:12px;height:12px;";
+		zoomOutBtn.addEventListener("mouseenter", () => zoomOutBtn.style.background = "var(--background-modifier-hover)");
+		zoomOutBtn.addEventListener("mouseleave", () => zoomOutBtn.style.background = "");
+		zoomOutBtn.addEventListener("click", () => {
+			const newZoom = Math.max(0.25, (this.zoomMode === "manual" ? this.manualZoom : 1) - 0.1);
+			this.setZoomMode("manual", Math.round(newZoom * 100) / 100);
+		});
+
+		// Zoom label — click cycles through modes
+		const zoomLabel = this.infoBarEl.createSpan({ cls: "typeset-zoom-label" });
+		zoomLabel.style.cssText = chipCss + "min-width:60px;justify-content:center;user-select:none;";
+		zoomLabel.textContent = this.getZoomLabel();
+		zoomLabel.setAttribute("aria-label", "Click to cycle: Fit Width → Fit Page → manual");
+		zoomLabel.addEventListener("mouseenter", () => zoomLabel.style.background = "var(--background-modifier-hover)");
+		zoomLabel.addEventListener("mouseleave", () => zoomLabel.style.background = "");
+		zoomLabel.addEventListener("click", () => {
+			if (this.zoomMode === "fit-width") {
+				this.setZoomMode("fit-page");
+			} else if (this.zoomMode === "fit-page") {
+				this.setZoomMode("manual", 1);
+			} else {
+				this.setZoomMode("fit-width");
+			}
+		});
+
+		// Zoom in button
+		const zoomInBtn = this.infoBarEl.createSpan();
+		zoomInBtn.style.cssText = chipCss;
+		zoomInBtn.setAttribute("aria-label", "Zoom in");
+		const zoomInIcon = zoomInBtn.createSpan();
+		setIcon(zoomInIcon, "lucide-plus");
+		zoomInIcon.style.cssText = "display:flex;align-items:center;width:12px;height:12px;";
+		zoomInBtn.addEventListener("mouseenter", () => zoomInBtn.style.background = "var(--background-modifier-hover)");
+		zoomInBtn.addEventListener("mouseleave", () => zoomInBtn.style.background = "");
+		zoomInBtn.addEventListener("click", () => {
+			const newZoom = Math.min(2, (this.zoomMode === "manual" ? this.manualZoom : 1) + 0.1);
+			this.setZoomMode("manual", Math.round(newZoom * 100) / 100);
+		});
 	}
 
 	private async exportPdf(): Promise<void> {
@@ -650,12 +856,15 @@ html, body {
 	height:   auto;
 	overflow: auto;
 	background: #d0d0d0;
+	/* Reset theme columns — preview uses clip-based pagination which is
+	   incompatible with CSS column-count.  Columns work in PDF natively. */
+	column-count: auto;
 }
 
 /* ── Grey surround ──────────────────────────────────────────────────────── */
 #typeset-scroll {
 	background: #d0d0d0;
-	padding: 32px;
+	padding: 8px;
 	box-sizing: border-box;
 	overflow-x: auto;
 }
